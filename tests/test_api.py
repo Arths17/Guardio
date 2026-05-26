@@ -15,10 +15,13 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def reset_state():
+    # disable real AI calls in tests
+    os.environ["GUARDIO_DISABLE_AI"] = "true"
     telemetry.reset()
     import asyncio
     asyncio.run(defense.reset())
     yield
+    os.environ.pop("GUARDIO_DISABLE_AI", None)
 
 
 def test_health():
@@ -109,3 +112,19 @@ def test_websocket_auth_and_ping():
         ws.send_text("ping")
         pong = ws.receive_json()
         assert pong["type"] == "pong"
+
+
+def test_ai_summarize_and_suggest():
+    headers = {"X-API-Key": "devkey"}
+    # create a small replay in-memory
+    from backend.replay import replays
+    rid = replays.save([{"type": "attack", "name": "ddos", "ts": "2026-05-26T00:00:00Z"}])
+
+    r = client.post(f"/ai/summarize/{rid}", headers=headers)
+    assert r.status_code == 200
+    assert "summary" in r.json()
+
+    ev = {"type": "packet", "src": "host-1", "dst": "srv-1", "color": "red", "ts": "2026-05-26T00:00:00Z"}
+    s = client.post("/ai/suggest", json=ev, headers=headers)
+    assert s.status_code == 200
+    assert "suggestion" in s.json()

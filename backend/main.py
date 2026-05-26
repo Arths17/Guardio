@@ -5,8 +5,10 @@ from .ws_manager import manager
 from .replay import replays
 from .defense import defense
 from .auth import require_auth
-from datetime import datetime
+from datetime import datetime, timezone
 from backend.telemetry_helper import TelemetryMiddleware, get_events
+from .ai_client import summarize_replay, suggest_defense_for_event
+from fastapi import HTTPException
 
 app = FastAPI(title="Guardio Backend")
 
@@ -86,6 +88,27 @@ async def get_replay(rid: str):
         return JSONResponse({"error": "not found"}, status_code=404)
 
     return {"id": rid, "events": r}
+
+
+# -------------------------
+# AI helpers
+# -------------------------
+@app.post("/ai/summarize/{rid}")
+async def ai_summarize(rid: str, x_api_key: str = Depends(require_auth)):
+    try:
+        text = summarize_replay(rid)
+        return {"id": rid, "summary": text}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+
+@app.post("/ai/suggest")
+async def ai_suggest(payload: dict, x_api_key: str = Depends(require_auth)):
+    try:
+        suggestion = suggest_defense_for_event(payload)
+        return {"suggestion": suggestion}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=str(e))
 
 
 # -------------------------
