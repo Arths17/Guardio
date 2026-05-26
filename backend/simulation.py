@@ -1,12 +1,14 @@
 import asyncio
 import random
-from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
+
 from .ws_manager import manager
 from .replay import replays
 from .defense import defense
 from .ids import ids
 from .db import db
+from .telemetry import telemetry
+from .utils import utc_now_iso
 
 
 class Simulation:
@@ -15,70 +17,95 @@ class Simulation:
         self.running = False
         self.active_attack: Optional[str] = None
         self._events: List[dict] = []
+        self._compromised_hosts: set[str] = set()
+        self._attack_lock = asyncio.Lock()
+        self.topology: Dict[str, List[str]] = {
+            "clients": [f"host-{i}" for i in range(1, 81)],
+            "servers": [f"srv-{i}" for i in range(1, 13)],
+            "databases": ["db-1", "db-2"],
+            "cloud": ["cloud-1", "cloud-2"],
+            "iot": [f"iot-{i}" for i in range(1, 13)],
+        }
+
+    def _pick(self, pool: str) -> str:
+        return random.choice(self.topology[pool])
+
+    def _target_host(self) -> str:
+        return random.choice(self.topology["servers"] + self.topology["databases"])
+
+    def _generate_packet(self, normal: bool = True, src: str | None = None, dst: str | None = None) -> dict:
+        packet = {
+            "type": "packet",
+            "src": src or self._pick("clients"),
+            "dst": dst or self._target_host(),
+            "protocol": random.choice(["tcp", "udp", "http", "tls"]),
+            "color": "blue" if normal else random.choice(["yellow", "red"]),
+            "size": random.randint(100, 1200) if normal else random.randint(1200, 10000),
+            "ts": utc_now_iso(),
+        }
+        return packet
+
+    async def _record_event(self, event: dict):
+        await manager.broadcast_json(event)
+        self._events.append(event)
+        telemetry.increment("simulation_events")
+
+    async def _emit_packet(self, packet: dict):
+        if await defense.is_blocked(packet["src"]) or await defense.is_blocked(packet["dst"]):
+            dropped = {"type": "dropped", "src": packet["src"], "dst": packet["dst"], "reason": "firewall", "ts": utc_now_iso()}
+            await self._record_event(dropped)
+            return
+
+        src_segment = await defense.segment_for(packet["src"])
+        dst_segment = await defense.segment_for(packet["dst"])
+        if src_segment and dst_segment and src_segment != dst_segment:
+            dropped = {
+                "type": "dropped",
+                "src": packet["src"],
+                "dst": packet["dst"],
+                "reason": "segment-isolation",
+                "ts": utc_now_iso(),
+            }
+            await self._record_event(dropped)
+            return
+
+        if await defense.is_honeypot(packet["dst"]):
+            honeypot_hit = {"type": "honeypot", "src": packet["src"], "dst": packet["dst"], "ts": utc_now_iso()}
+            await self._record_event(honeypot_hit)
+
+        await self._record_event(packet)
+        alert = ids.alert_for(packet)
+        if alert:
+            await self._record_event(alert)
 
     async def _run(self):
         try:
             while self.running:
-                # emit benign packet
-                pkt = self._generate_packet(normal=True)
-                # defense check
-                if await defense.is_blocked(pkt["src"]) or await defense.is_blocked(pkt["dst"]):
-                    drop = {"type": "dropped", "src": pkt["src"], "dst": pkt["dst"], "ts": datetime.utcnow().isoformat() + "Z"}
-                    await manager.broadcast_json(drop)
-                    self._events.append(drop)
-                else:
-                    await manager.broadcast_json(pkt)
-                    self._events.append(pkt)
+                await self._emit_packet(self._generate_packet(normal=True))
 
-                alert = ids.alert_for(pkt)
-                if alert:
-                    await manager.broadcast_json(alert)
-                    self._events.append(alert)
+                if random.random() < 0.10:
+                    await self._emit_packet(self._generate_packet(normal=False))
 
-                # occasionally emit suspicious or malicious packets
-                if random.random() < 0.05:
-                    pkt = self._generate_packet(normal=False)
-                    if await defense.is_blocked(pkt["src"]) or await defense.is_blocked(pkt["dst"]):
-                        drop = {"type": "dropped", "src": pkt["src"], "dst": pkt["dst"], "ts": datetime.utcnow().isoformat() + "Z"}
-                        await manager.broadcast_json(drop)
-                        self._events.append(drop)
-                    else:
-                        await manager.broadcast_json(pkt)
-                        self._events.append(pkt)
-                        alert = ids.alert_for(pkt)
-                        if alert:
-                            await manager.broadcast_json(alert)
-                            self._events.append(alert)
+                if self._compromised_hosts and random.random() < 0.15:
+                    infected_src = random.choice(sorted(self._compromised_hosts))
+                    await self._emit_packet(self._generate_packet(normal=False, src=infected_src))
 
                 await asyncio.sleep(0.15)
         except asyncio.CancelledError:
             return
-
-    def _generate_packet(self, normal=True):
-        now = datetime.utcnow().isoformat() + "Z"
-        src = f"host-{random.randint(1,200)}"
-        dst = f"srv-{random.randint(1,20)}"
-        proto = random.choice(["tcp", "udp", "http"])
-        if normal:
-            color = "blue"
-            size = random.randint(100, 1200)
-        else:
-            color = random.choice(["yellow", "red"])
-            size = random.randint(1200, 10000)
-        return {"type": "packet", "src": src, "dst": dst, "protocol": proto, "color": color, "size": size, "ts": now}
 
     async def start(self):
         if self.running:
             return
         self.running = True
         self._events = []
-        # initial state broadcast
-        await manager.broadcast_json({"type": "state", "running": True, "ts": datetime.utcnow().isoformat() + "Z"})
+        telemetry.increment("simulation_starts")
+        await manager.broadcast_json({"type": "state", "running": True, "ts": utc_now_iso()})
         self._task = asyncio.create_task(self._run())
 
     async def stop(self):
         if not self.running:
-            return
+            return None
         self.running = False
         if self._task:
             self._task.cancel()
@@ -86,45 +113,134 @@ class Simulation:
                 await self._task
             except asyncio.CancelledError:
                 pass
-        await manager.broadcast_json({"type": "state", "running": False, "ts": datetime.utcnow().isoformat() + "Z"})
-        # save replay
+
+        await manager.broadcast_json({"type": "state", "running": False, "ts": utc_now_iso()})
         rid = replays.save(self._events)
         try:
             db.save_replay(rid, self._events)
         except Exception:
             pass
         self._events = []
+        self._compromised_hosts.clear()
+        telemetry.increment("simulation_stops")
         return rid
 
     async def launch_attack(self, name: str):
-        # simple attack simulation driver
-        self.active_attack = name
-        start = {"type": "attack", "name": name, "stage": "start", "details": {}, "ts": datetime.utcnow().isoformat() + "Z"}
-        await manager.broadcast_json(start)
-        self._events.append(start)
+        async with self._attack_lock:
+            if self.active_attack:
+                return
+            self.active_attack = name
 
-        if name == "ddos":
-            # ramp up packet storm
-            for i in range(60):
-                pkt = self._generate_packet(normal=False)
-                pkt["size"] = random.randint(2000, 15000)
-                await manager.broadcast_json(pkt)
-                self._events.append(pkt)
-                await asyncio.sleep(0.02)
+        telemetry.increment(f"attack_{name}_starts")
+        start = {"type": "attack", "name": name, "stage": "start", "details": {}, "ts": utc_now_iso()}
+        await self._record_event(start)
 
-        elif name == "malware":
-            # propagate infection events
-            for i in range(30):
-                now = datetime.utcnow().isoformat() + "Z"
-                ev = {"type": "attack", "name": name, "stage": "update", "details": {"infected": f"host-{random.randint(1,200)}"}, "ts": now}
-                await manager.broadcast_json(ev)
-                self._events.append(ev)
-                await asyncio.sleep(0.12)
+        handlers = {
+            "ddos": self._attack_ddos,
+            "malware": self._attack_malware,
+            "ransomware": self._attack_ransomware,
+            "phishing": self._attack_phishing,
+            "botnet": self._attack_botnet,
+        }
+        handler = handlers.get(name)
+        if handler is not None:
+            await handler()
+        else:
+            await self._record_event({"type": "attack", "name": name, "stage": "update", "details": {"status": "unknown-attack"}, "ts": utc_now_iso()})
 
-        end = {"type": "attack", "name": name, "stage": "end", "details": {}, "ts": datetime.utcnow().isoformat() + "Z"}
-        await manager.broadcast_json(end)
-        self._events.append(end)
-        self.active_attack = None
+        end = {"type": "attack", "name": name, "stage": "end", "details": {}, "ts": utc_now_iso()}
+        await self._record_event(end)
+        telemetry.increment(f"attack_{name}_ends")
+
+        async with self._attack_lock:
+            self.active_attack = None
+
+    async def _attack_ddos(self):
+        target = self._target_host()
+        for _ in range(80):
+            packet = self._generate_packet(normal=False, dst=target)
+            packet["color"] = "red"
+            packet["size"] = random.randint(4000, 16000)
+            await self._emit_packet(packet)
+            telemetry.increment("bandwidth_spikes")
+            await asyncio.sleep(0.015)
+
+    async def _attack_malware(self):
+        victim = self._pick("clients")
+        self._compromised_hosts.add(victim)
+        for hop in range(24):
+            new_victim = self._pick("clients")
+            self._compromised_hosts.add(new_victim)
+            event = {
+                "type": "attack",
+                "name": "malware",
+                "stage": "update",
+                "details": {"infected": new_victim, "from": victim, "hop": hop},
+                "ts": utc_now_iso(),
+            }
+            await self._record_event(event)
+            await self._emit_packet(self._generate_packet(normal=False, src=victim, dst=new_victim))
+            victim = new_victim
+            await asyncio.sleep(0.08)
+
+    async def _attack_ransomware(self):
+        targets = random.sample(self.topology["servers"] + self.topology["databases"], 4)
+        for target in targets:
+            event = {
+                "type": "attack",
+                "name": "ransomware",
+                "stage": "update",
+                "details": {"locked": target, "state": "encrypted"},
+                "ts": utc_now_iso(),
+            }
+            await self._record_event(event)
+            await self._emit_packet(self._generate_packet(normal=False, dst=target))
+            await asyncio.sleep(0.12)
+
+    async def _attack_phishing(self):
+        victim = self._pick("clients")
+        privileged = self._pick("servers")
+        chain = [
+            ("credential_theft", victim),
+            ("privilege_escalation", privileged),
+        ]
+        for stage, target in chain:
+            event = {
+                "type": "attack",
+                "name": "phishing",
+                "stage": "update",
+                "details": {"stage": stage, "target": target},
+                "ts": utc_now_iso(),
+            }
+            await self._record_event(event)
+            await self._emit_packet(self._generate_packet(normal=False, src=victim, dst=target))
+            await asyncio.sleep(0.10)
+
+    async def _attack_botnet(self):
+        compromised = random.sample(self.topology["iot"] + self.topology["clients"], 8)
+        self._compromised_hosts.update(compromised)
+        for host in compromised:
+            event = {
+                "type": "attack",
+                "name": "botnet",
+                "stage": "update",
+                "details": {"node": host, "role": "c2-aligned"},
+                "ts": utc_now_iso(),
+            }
+            await self._record_event(event)
+        target = self._target_host()
+        for _ in range(30):
+            await self._emit_packet(self._generate_packet(normal=False, src=random.choice(compromised), dst=target))
+            await asyncio.sleep(0.03)
+
+    def snapshot(self) -> Dict[str, Any]:
+        return {
+            "running": self.running,
+            "active_attack": self.active_attack,
+            "events_buffered": len(self._events),
+            "compromised_hosts": sorted(self._compromised_hosts),
+            "topology": {key: list(value) for key, value in self.topology.items()},
+        }
 
 
 sim = Simulation()

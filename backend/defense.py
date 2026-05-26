@@ -34,9 +34,34 @@ class DefenseManager:
         async with self.lock:
             self.segments[name] = set(hosts)
 
+    async def get_snapshot(self) -> Dict[str, Any]:
+        async with self.lock:
+            return {
+                "blocked": sorted(self.firewall_blocked_hosts),
+                "honeypots": sorted(self.honeypots),
+                "segments": {name: sorted(hosts) for name, hosts in self.segments.items()},
+            }
+
+    async def segment_for(self, host: str) -> str | None:
+        async with self.lock:
+            for name, hosts in self.segments.items():
+                if host in hosts:
+                    return name
+        return None
+
+    async def is_honeypot(self, host: str) -> bool:
+        async with self.lock:
+            return host in self.honeypots
+
     async def remove_segment(self, name: str):
         async with self.lock:
             self.segments.pop(name, None)
+
+    async def reset(self):
+        async with self.lock:
+            self.firewall_blocked_hosts.clear()
+            self.segments.clear()
+            self.honeypots.clear()
 
 
 defense = DefenseManager()

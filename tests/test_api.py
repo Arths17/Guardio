@@ -1,13 +1,24 @@
 import sys
 import os
+import pytest
 from fastapi.testclient import TestClient
 
 # ensure project root is on path for imports
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from backend.main import app
+from backend.defense import defense
+from backend.telemetry import telemetry
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def reset_state():
+    telemetry.reset()
+    import asyncio
+    asyncio.run(defense.reset())
+    yield
 
 
 def test_health():
@@ -16,6 +27,18 @@ def test_health():
 
     data = r.json()
     assert data.get("status") == "ok"
+
+
+def test_status_and_metrics():
+    r = client.get("/status")
+    assert r.status_code == 200
+    body = r.json()
+    assert "simulation" in body
+    assert "defense" in body
+
+    metrics = client.get("/metrics")
+    assert metrics.status_code == 200
+    assert "counts" in metrics.json()
 
 
 def test_defense_block_and_status():
@@ -53,3 +76,36 @@ def test_defense_unblock():
 
     st = r2.json()
     assert "host-1" not in st.get("blocked", [])
+
+
+def test_segment_and_honeypot_controls():
+    headers = {"X-API-Key": "devkey"}
+
+    segment = client.post(
+        "/defense/segment",
+        json={"name": "prod", "hosts": ["srv-1", "srv-2"]},
+        headers=headers,
+    )
+    assert segment.status_code == 200
+
+    honeypot = client.post(
+        "/defense/honeypot",
+        json={"host": "srv-9"},
+        headers=headers,
+    )
+    assert honeypot.status_code == 200
+
+    defense_status = client.get("/defense/status")
+    body = defense_status.json()
+    assert "prod" in body.get("segments", {})
+    assert "srv-9" in body.get("honeypots", [])
+
+
+def test_websocket_auth_and_ping():
+    with client.websocket_connect("/ws?api_key=devkey") as ws:
+        initial = ws.receive_json()
+        assert initial["type"] == "state"
+
+        ws.send_text("ping")
+        pong = ws.receive_json()
+        assert pong["type"] == "pong"

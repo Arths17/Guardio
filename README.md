@@ -25,8 +25,10 @@ What this backend provides
 - REST control endpoints to start/stop the simulator and launch attacks.
 - Simple defensive controls (block/unblock hosts) that affect simulation
 	behavior in real time.
+- Network segmentation and honeypot controls for containment-style demos.
 - IDS alerts emitted when packets exceed a suspicion threshold.
 - Replay saving (in-memory and optional persisted to `guardio.db`).
+- Runtime status and metrics endpoints for live monitoring.
 
 Secure endpoints
 Most control endpoints require a header `X-API-Key`. The default development
@@ -35,6 +37,8 @@ production.
 
 Important endpoints
 - `GET /health` — health check.
+- `GET /status` — simulation and defense snapshot.
+- `GET /metrics` — telemetry and runtime counters.
 - `POST /start` — start simulation (requires `X-API-Key`).
 - `POST /stop` — stop simulation and save replay (requires `X-API-Key`).
 - `POST /attack` — launch an attack, JSON body `{ "name": "ddos" }`
@@ -42,9 +46,13 @@ Important endpoints
 - `POST /defense/firewall/block` — block host, JSON `{ "host": "host-1" }`
 	(requires `X-API-Key`).
 - `POST /defense/firewall/unblock` — unblock host (requires `X-API-Key`).
+- `POST /defense/segment` — create a segment, JSON `{ "name": "prod", "hosts": ["srv-1"] }`.
+- `DELETE /defense/segment/{name}` — remove a segment.
+- `POST /defense/honeypot` — add a honeypot host.
+- `DELETE /defense/honeypot` — remove a honeypot host.
 - `GET /defense/status` — view active blocks, segments and honeypots.
 - `GET /replays` and `GET /replay/{id}` — list and fetch saved replays.
-- `WebSocket /ws` — connect to receive live events (packets, alerts, state).
+- `WebSocket /ws?api_key=devkey` — connect to receive live events (packets, alerts, state).
 
 Quick start (local)
 1. Create and activate a virtual environment and install dependencies:

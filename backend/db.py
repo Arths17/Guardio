@@ -1,7 +1,8 @@
 import sqlite3
 from typing import List, Dict, Any
-from datetime import datetime
 import threading
+
+from .utils import utc_now_iso, json_dumps
 
 DB_PATH = "guardio.db"
 
@@ -37,9 +38,44 @@ class DB:
     def save_replay(self, rid: str, events: List[Dict[str, Any]]):
         conn = sqlite3.connect(self.path)
         cur = conn.cursor()
-        cur.execute("INSERT OR REPLACE INTO replays (id, ts) VALUES (?,?)", (rid, datetime.utcnow().isoformat() + "Z"))
+        cur.execute("INSERT OR REPLACE INTO replays (id, ts) VALUES (?,?)", (rid, utc_now_iso(),))
         for ev in events:
-            cur.execute("INSERT INTO events (replay_id, type, payload, ts) VALUES (?,?,?,?)", (rid, ev.get("type"), str(ev), ev.get("ts")))
+            cur.execute("INSERT INTO events (replay_id, type, payload, ts) VALUES (?,?,?,?)", (rid, ev.get("type"), json_dumps(ev), ev.get("ts")))
+        conn.commit()
+        conn.close()
+
+    def list_replays(self) -> List[Dict[str, Any]]:
+        conn = sqlite3.connect(self.path)
+        cur = conn.cursor()
+        rows = cur.execute(
+            """
+            SELECT r.id, r.ts, COUNT(e.id) AS event_count
+            FROM replays r
+            LEFT JOIN events e ON e.replay_id = r.id
+            GROUP BY r.id, r.ts
+            ORDER BY r.ts DESC
+            """
+        ).fetchall()
+        conn.close()
+        return [{"id": rid, "ts": ts, "event_count": count} for rid, ts, count in rows]
+
+    def get_events(self, rid: str) -> List[Dict[str, Any]]:
+        conn = sqlite3.connect(self.path)
+        cur = conn.cursor()
+        rows = cur.execute(
+            "SELECT payload FROM events WHERE replay_id = ? ORDER BY id ASC",
+            (rid,),
+        ).fetchall()
+        conn.close()
+        import json
+
+        return [json.loads(row[0]) for row in rows]
+
+    def purge_replay(self, rid: str):
+        conn = sqlite3.connect(self.path)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM events WHERE replay_id = ?", (rid,))
+        cur.execute("DELETE FROM replays WHERE id = ?", (rid,))
         conn.commit()
         conn.close()
 

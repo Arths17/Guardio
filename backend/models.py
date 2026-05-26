@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Literal, Any, Dict
+from pydantic import BaseModel, Field
+from typing import Literal, Any, Dict, List
 from datetime import datetime
 
 
@@ -25,3 +25,28 @@ class SimulationState(BaseModel):
     running: bool
     active_attack: str | None = None
     clients: int = 0
+
+
+class AttackRequest(BaseModel):
+    name: Literal["ddos", "malware", "ransomware", "phishing", "botnet"]
+    target: str | None = None
+    intensity: int = Field(default=1, ge=1, le=10)
+
+
+class HostActionRequest(BaseModel):
+    host: str
+
+
+class SegmentRequest(BaseModel):
+    name: str
+    hosts: List[str]
+
+
+class ReplaySummary(BaseModel):
+    id: str
+    event_count: int
+
+
+class MetricSnapshot(BaseModel):
+    counts: Dict[str, int]
+    last_event: Dict[str, Any] | None = None
