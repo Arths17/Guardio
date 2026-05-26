@@ -7,10 +7,13 @@ from .defense import defense
 from .auth import require_auth
 from datetime import datetime, timezone
 from backend.telemetry_helper import TelemetryMiddleware, get_events
+from .telemetry.telemetry import telemetry
 from .ai_client import summarize_replay, suggest_defense_for_event
 from fastapi import HTTPException
 
 app = FastAPI(title="Guardio Backend")
+# attach telemetry middleware
+app.add_middleware(TelemetryMiddleware)
 
 
 @app.get("/health")
@@ -62,6 +65,58 @@ async def unblock_host(payload: dict, x_api_key: str = Depends(require_auth)):
 
     await defense.unblock_host(host)
     return {"unblocked": host}
+
+
+@app.post("/defense/segment")
+async def create_segment(payload: dict, x_api_key: str = Depends(require_auth)):
+    name = payload.get("name")
+    hosts = payload.get("hosts") or []
+    if not name:
+        return JSONResponse({"error": "missing segment name"}, status_code=400)
+    await defense.create_segment(name, set(hosts))
+    return {"segment": name, "hosts": hosts}
+
+
+@app.delete("/defense/segment/{name}")
+async def delete_segment(name: str, x_api_key: str = Depends(require_auth)):
+    await defense.remove_segment(name)
+    return {"deleted": name}
+
+
+@app.post("/defense/honeypot")
+async def add_honeypot(payload: dict, x_api_key: str = Depends(require_auth)):
+    host = payload.get("host")
+    if not host:
+        return JSONResponse({"error": "missing host"}, status_code=400)
+    await defense.add_honeypot(host)
+    return {"honeypot": host}
+
+
+@app.delete("/defense/honeypot")
+async def remove_honeypot(payload: dict, x_api_key: str = Depends(require_auth)):
+    host = payload.get("host")
+    if not host:
+        return JSONResponse({"error": "missing host"}, status_code=400)
+    await defense.remove_honeypot(host)
+    return {"removed": host}
+
+
+@app.get("/status")
+async def status_snapshot():
+    return {
+        "simulation": sim.snapshot(),
+        "defense": await defense.get_snapshot(),
+        "clients": await manager.count(),
+        "active_attack": sim.active_attack,
+    }
+
+
+@app.get("/metrics")
+async def metrics():
+    snap = telemetry.snapshot()
+    snap["websocket_clients"] = await manager.count()
+    snap["simulation"] = sim.snapshot()
+    return snap
 
 
 @app.get("/defense/status")
@@ -131,10 +186,6 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         await manager.disconnect(websocket)
 
-
-# -------------------------
-# Telemetry
-# -------------------------
 @app.get("/telemetry/events")
 def telemetry_events():
     return get_events()

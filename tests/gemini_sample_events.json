@@ -1,0 +1,29 @@
+[
+  {
+    "event_id": "e1",
+    "request_id": "r1",
+    "timestamp": "2026-05-26T18:00:00Z",
+    "method": "GET",
+    "path": "/health",
+    "status_code": 200,
+    "latency_ms": 12.5
+  },
+  {
+    "event_id": "e2",
+    "request_id": "r2",
+    "timestamp": "2026-05-26T18:01:00Z",
+    "method": "POST",
+    "path": "/defense/firewall/block",
+    "status_code": 200,
+    "latency_ms": 45.2
+  },
+  {
+    "event_id": "e3",
+    "request_id": "r3",
+    "timestamp": "2026-05-26T18:02:00Z",
+    "method": "POST",
+    "path": "/defense/firewall/unblock",
+    "status_code": 200,
+    "latency_ms": 40.0
+  }
+]

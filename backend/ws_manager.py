@@ -2,7 +2,7 @@ from fastapi import WebSocket
 from typing import List
 import asyncio
 
-from .telemetry import telemetry
+from .telemetry.telemetry import telemetry
 
 
 class WebSocketManager:
@@ -15,6 +15,21 @@ class WebSocketManager:
         async with self.lock:
             self.active.append(websocket)
         telemetry.increment("websocket_clients")
+        # send initial state to newly connected client
+        try:
+            from .simulation import sim
+            from .defense import defense
+
+            state = {
+                "type": "state",
+                "simulation": sim.snapshot(),
+                "defense": await defense.get_snapshot(),
+                "clients": await self.count(),
+            }
+            await websocket.send_json(state)
+        except Exception:
+            # don't block connection on telemetry/state errors
+            return
 
     async def disconnect(self, websocket: WebSocket):
         async with self.lock:

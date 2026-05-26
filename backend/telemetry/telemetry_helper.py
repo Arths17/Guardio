@@ -1,5 +1,58 @@
 import time
 import uuid
+from typing import List, Dict, Any
+
+EVENT_STORE: List[Dict[str, Any]] = []
+
+
+def store_event(event: Dict[str, Any]):
+    # ensure required fields and normalize
+    evt = dict(event)
+    evt.setdefault("event_id", uuid.uuid4().hex)
+    evt.setdefault("request_id", uuid.uuid4().hex)
+    evt.setdefault("timestamp", time.time())
+    EVENT_STORE.append(evt)
+
+
+def get_events() -> List[Dict[str, Any]]:
+    return list(EVENT_STORE)
+
+
+class TelemetryMiddleware:
+    def __init__(self, app, store=store_event):
+        self.app = app
+        self.store = store
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            return await self.app(scope, receive, send)
+
+        start = time.time()
+        method = scope.get("method")
+        path = scope.get("path")
+
+        status_container = {"status": None}
+
+        async def send_wrapper(message):
+            if message.get("type") == "http.response.start":
+                status_container["status"] = message.get("status")
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+        latency = max(0, (time.time() - start) * 1000.0)
+        event = {
+            "event_id": uuid.uuid4().hex,
+            "request_id": uuid.uuid4().hex,
+            "timestamp": time.time(),
+            "method": method,
+            "path": path,
+            "status_code": status_container.get("status") or 200,
+            "latency_ms": latency,
+        }
+        self.store(event)
+import time
+import uuid
 import json
 import logging
 from datetime import datetime
