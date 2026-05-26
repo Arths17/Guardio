@@ -2,7 +2,7 @@ import sys
 import os
 from fastapi.testclient import TestClient
 
-# ensure project root is on path for imports
+# Ensure backend module is importable
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from backend.main import app
@@ -33,13 +33,10 @@ def test_defense_block_and_status():
     assert r2.status_code == 200
 
     st = r2.json()
-    assert "host-1" in st.get("blocked", [])
-
+    assert st.get("blocked") == ["host-1"]
 
 def test_defense_unblock():
     headers = {"X-API-Key": "devkey"}
-
-    # unblock host
     r = client.post(
         "/defense/firewall/unblock",
         json={"host": "host-1"},
@@ -47,9 +44,7 @@ def test_defense_unblock():
     )
     assert r.status_code == 200
     assert r.json().get("unblocked") == "host-1"
-
     r2 = client.get("/defense/status")
     assert r2.status_code == 200
-
     st = r2.json()
-    assert "host-1" not in st.get("blocked", [])
+    assert st.get("blocked") == []
