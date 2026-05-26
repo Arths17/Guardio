@@ -8,7 +8,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from backend.main import app
 from backend.defense import defense
-from backend.telemetry import telemetry
+from backend.telemetry.telemetry import telemetry
 
 client = TestClient(app)
 

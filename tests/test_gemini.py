@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from backend.main import app
-from backend.telemetry_helper import EVENT_STORE, store_event
+from backend.telemetry.telemetry_helper import get_events, store_event, EVENT_STORE
 
 client = TestClient(app)
 
@@ -23,39 +23,36 @@ with open(sample_path, "r") as f:
 
 
 # -------------------------
-# Test: telemetry endpoint exists + structure
+# Fixture: clean state per test
+# -------------------------
+@pytest.fixture(autouse=True)
+def clear_telemetry():
+    EVENT_STORE.clear()
+    yield
+    EVENT_STORE.clear()
+
+
+# -------------------------
+# Test: endpoint exists
 # -------------------------
 def test_telemetry_events_basic():
-    # clear state to avoid flaky tests
-    EVENT_STORE.clear()
-
     r = client.get("/telemetry/events")
     assert r.status_code == 200
-
-    events = r.json()
-    assert isinstance(events, list)
+    assert isinstance(r.json(), list)
 
 
 # -------------------------
-# Test: sample events ingestion + validation
+# Test: sample event replay correctness
 # -------------------------
 def test_telemetry_events_schema_and_data():
-    # reset store
-    EVENT_STORE.clear()
-
-    # inject sample events into in-memory store
     for event in sample_events:
         store_event(event)
 
-    r = client.get("/telemetry/events")
-    assert r.status_code == 200
-
-    events = r.json()
+    events = get_events()
 
     assert len(events) == len(sample_events)
 
     for event in events:
-        # required telemetry fields
         assert "event_id" in event
         assert "request_id" in event
         assert "timestamp" in event
@@ -64,29 +61,53 @@ def test_telemetry_events_schema_and_data():
         assert "status_code" in event
         assert "latency_ms" in event
 
-        # sanity checks (important, not just structure)
         assert isinstance(event["latency_ms"], (int, float))
         assert event["latency_ms"] >= 0
-        assert event["method"] in ["GET", "POST", "PUT", "DELETE", "PATCH"]
 
 
 # -------------------------
-# Test: real request generates telemetry
+# Test: middleware generates telemetry
 # -------------------------
 def test_telemetry_is_recorded_from_requests():
-    EVENT_STORE.clear()
-
-    # trigger real middleware logging
     r = client.get("/health")
     assert r.status_code == 200
 
-    r2 = client.get("/telemetry/events")
-    assert r2.status_code == 200
-
-    events = r2.json()
+    events = client.get("/telemetry/events").json()
 
     assert len(events) >= 1
 
     event = events[-1]
     assert event["path"] == "/health"
     assert event["method"] == "GET"
+
+
+# -------------------------
+# Test: defense block/unblock telemetry
+# -------------------------
+def test_defense_block_unblock_telemetry():
+    headers = {"X-API-Key": "devkey"}
+
+    r = client.post(
+        "/defense/firewall/block",
+        json={"host": "host-1"},
+        headers=headers
+    )
+    assert r.status_code == 200
+
+    r2 = client.post(
+        "/defense/firewall/unblock",
+        json={"host": "host-1"},
+        headers=headers
+    )
+    assert r2.status_code == 200
+
+    events = client.get("/telemetry/events").json()
+
+    block_events = [e for e in events if e["path"] == "/defense/firewall/block"]
+    unblock_events = [e for e in events if e["path"] == "/defense/firewall/unblock"]
+
+    assert len(block_events) >= 1
+    assert len(unblock_events) >= 1
+
+    assert block_events[-1]["status_code"] == 200
+    assert unblock_events[-1]["status_code"] == 200

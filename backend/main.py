@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, Depends
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
 from fastapi.responses import JSONResponse
 from .simulation import sim
 from .ws_manager import manager
@@ -47,6 +47,7 @@ async def block_host(payload: dict, x_api_key: str = Depends(require_auth)):
     host = payload.get("host")
     if not host:
         return JSONResponse({"error": "missing host"}, status_code=400)
+
     await defense.block_host(host)
     return {"blocked": host}
 
@@ -56,15 +57,23 @@ async def unblock_host(payload: dict, x_api_key: str = Depends(require_auth)):
     host = payload.get("host")
     if not host:
         return JSONResponse({"error": "missing host"}, status_code=400)
+
     await defense.unblock_host(host)
     return {"unblocked": host}
 
 
 @app.get("/defense/status")
 async def defense_status():
-    return {"blocked": list(defense.firewall_blocked_hosts), "honeypots": list(defense.honeypots), "segments": {k: list(v) for k, v in defense.segments.items()}}
+    return {
+        "blocked": list(defense.firewall_blocked_hosts),
+        "honeypots": list(defense.honeypots),
+        "segments": {k: list(v) for k, v in defense.segments.items()}
+    }
 
 
+# -------------------------
+# Replays
+# -------------------------
 @app.get("/replays")
 async def list_replays():
     return {"replays": replays.list()}
@@ -75,28 +84,34 @@ async def get_replay(rid: str):
     r = replays.get(rid)
     if r is None:
         return JSONResponse({"error": "not found"}, status_code=404)
+
     return {"id": rid, "events": r}
 
 
+# -------------------------
+# WebSocket
+# -------------------------
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
+
     try:
         while True:
-            # keep connection alive; clients can send pings or commands
             data = await websocket.receive_text()
-            # echo simple command support
+
             if data == "ping":
-                await websocket.send_json({"type": "pong", "ts": datetime.utcnow().isoformat() + "Z"})
+                await websocket.send_json({
+                    "type": "pong",
+                    "ts": datetime.now(timezone.utc).isoformat()
+                })
+
     except WebSocketDisconnect:
         await manager.disconnect(websocket)
 
-app = FastAPI()
 
-app.add_middleware(TelemetryMiddleware)
-
-
+# -------------------------
+# Telemetry
+# -------------------------
 @app.get("/telemetry/events")
 def telemetry_events():
     return get_events()
-    
