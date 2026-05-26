@@ -87,17 +87,11 @@ def test_telemetry_is_recorded_from_requests():
 def test_defense_block_unblock_telemetry():
     headers = {"X-API-Key": "devkey"}
 
-    r = client.post(
-        "/defense/firewall/block",
-        json={"host": "host-1"},
-        headers=headers
-    )
+    r = client.post("/defense/firewall/block", json={"host": "host-1"}, headers=headers)
     assert r.status_code == 200
 
     r2 = client.post(
-        "/defense/firewall/unblock",
-        json={"host": "host-1"},
-        headers=headers
+        "/defense/firewall/unblock", json={"host": "host-1"}, headers=headers
     )
     assert r2.status_code == 200
 

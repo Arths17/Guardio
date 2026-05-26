@@ -1,69 +1,14 @@
-import time
-import uuid
-from typing import List, Dict, Any
-
-EVENT_STORE: List[Dict[str, Any]] = []
-
-
-def store_event(event: Dict[str, Any]):
-    # ensure required fields and normalize
-    evt = dict(event)
-    evt.setdefault("event_id", uuid.uuid4().hex)
-    evt.setdefault("request_id", uuid.uuid4().hex)
-    evt.setdefault("timestamp", time.time())
-    EVENT_STORE.append(evt)
-
-
-def get_events() -> List[Dict[str, Any]]:
-    return list(EVENT_STORE)
-
-
-class TelemetryMiddleware:
-    def __init__(self, app, store=store_event):
-        self.app = app
-        self.store = store
-
-    async def __call__(self, scope, receive, send):
-        if scope.get("type") != "http":
-            return await self.app(scope, receive, send)
-
-        start = time.time()
-        method = scope.get("method")
-        path = scope.get("path")
-
-        status_container = {"status": None}
-
-        async def send_wrapper(message):
-            if message.get("type") == "http.response.start":
-                status_container["status"] = message.get("status")
-            await send(message)
-
-        await self.app(scope, receive, send_wrapper)
-
-        latency = max(0, (time.time() - start) * 1000.0)
-        event = {
-            "event_id": uuid.uuid4().hex,
-            "request_id": uuid.uuid4().hex,
-            "timestamp": time.time(),
-            "method": method,
-            "path": path,
-            "status_code": status_container.get("status") or 200,
-            "latency_ms": latency,
-        }
-        self.store(event)
-import time
-import uuid
 import json
 import logging
-from datetime import datetime
+import time
+import uuid
 from collections import deque
-from typing import Optional, Dict, Any, Deque
-
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
+from datetime import datetime
+from typing import Any, Deque, Dict, Optional
 
 from pydantic import BaseModel, Field
-
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 # =========================
 # Logging Setup
@@ -71,9 +16,7 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger("telemetry")
 logger.setLevel(logging.INFO)
-
-handler = logging.StreamHandler()
-logger.addHandler(handler)
+logger.addHandler(logging.StreamHandler())
 
 
 def log_event(event: dict):
@@ -82,7 +25,7 @@ def log_event(event: dict):
 
 
 # =========================
-# In-memory replay store
+# In-memory store
 # =========================
 
 EVENT_STORE: Deque[Dict[str, Any]] = deque(maxlen=1000)
@@ -97,19 +40,18 @@ def get_events():
 
 
 # =========================
-# Event Schema (optional but useful)
+# Event Schema
 # =========================
+
 
 class TelemetryEvent(BaseModel):
     event_id: str
     request_id: str
     timestamp: datetime
-
     method: str
     path: str
     status_code: int
     latency_ms: float
-
     request_body: Optional[Dict[str, Any]] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
@@ -117,6 +59,7 @@ class TelemetryEvent(BaseModel):
 # =========================
 # Middleware
 # =========================
+
 
 class TelemetryMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -140,12 +83,10 @@ class TelemetryMiddleware(BaseHTTPMiddleware):
             "event_id": str(uuid.uuid4()),
             "request_id": request_id,
             "timestamp": datetime.utcnow().isoformat(),
-
             "method": request.method,
             "path": request.url.path,
             "status_code": response.status_code,
             "latency_ms": round(latency_ms, 2),
-
             "request_body": body,
         }
 

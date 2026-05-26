@@ -1,5 +1,3 @@
-from datetime import datetime
-
 from .utils import utc_now_iso
 
 
@@ -26,7 +24,13 @@ class IDS:
     def alert_for(self, pkt: dict) -> dict | None:
         score = self.score_packet(pkt)
         if score >= self.suspicion_threshold:
-            return {"type": "alert", "level": "high" if score > 0.85 else "medium", "score": score, "packet": pkt, "ts": utc_now_iso()}
+            return {
+                "type": "alert",
+                "level": "high" if score > 0.85 else "medium",
+                "score": score,
+                "packet": pkt,
+                "ts": utc_now_iso(),
+            }
         return None
 
 

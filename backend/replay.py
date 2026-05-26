@@ -1,6 +1,5 @@
 from typing import List, Dict, Any
 import uuid
-from datetime import datetime
 
 from .utils import utc_now_iso
 
@@ -15,7 +14,10 @@ class ReplayStore:
         return rid
 
     def list(self):
-        return [{"id": rid, "event_count": len(payload["events"]), "ts": payload["ts"]} for rid, payload in self.store.items()]
+        return [
+            {"id": rid, "event_count": len(payload["events"]), "ts": payload["ts"]}
+            for rid, payload in self.store.items()
+        ]
 
     def get(self, rid: str):
         payload = self.store.get(rid)

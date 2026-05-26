@@ -39,7 +39,9 @@ class DefenseManager:
             return {
                 "blocked": sorted(self.firewall_blocked_hosts),
                 "honeypots": sorted(self.honeypots),
-                "segments": {name: sorted(hosts) for name, hosts in self.segments.items()},
+                "segments": {
+                    name: sorted(hosts) for name, hosts in self.segments.items()
+                },
             }
 
     async def segment_for(self, host: str) -> str | None:

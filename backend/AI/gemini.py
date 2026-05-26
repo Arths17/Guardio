@@ -21,7 +21,9 @@ def generate_text(prompt: str, system_instruction: str | None = None) -> str:
 
     api_key = _get_api_key()
     if not api_key:
-        return "[ai-missing-key] " + (prompt[:400] + ("..." if len(prompt) > 400 else ""))
+        return "[ai-missing-key] " + (
+            prompt[:400] + ("..." if len(prompt) > 400 else "")
+        )
 
     try:
         from google import genai
@@ -30,7 +32,8 @@ def generate_text(prompt: str, system_instruction: str | None = None) -> str:
         response = client.models.generate_content(
             model="gemini-3.1-flash-lite",
             config={
-                "system_instruction": system_instruction or "You are a helpful assistant that provides concise and accurate information about cybersecurity.",
+                "system_instruction": system_instruction
+                or "You are a helpful assistant that provides concise and accurate information about cybersecurity.",
             },
             contents=prompt,
         )
@@ -42,7 +45,9 @@ def generate_text(prompt: str, system_instruction: str | None = None) -> str:
 def main():
     api_key = _get_api_key()
     if not api_key:
-        raise RuntimeError("GEMINI_API_KEY is not set. Add it to the repository .env file.")
+        raise RuntimeError(
+            "GEMINI_API_KEY is not set. Add it to the repository .env file."
+        )
 
     from google import genai
 
@@ -76,5 +81,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

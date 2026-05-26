@@ -1,24 +1,29 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Depends
-from fastapi.responses import JSONResponse
-from .simulation import sim
-from .ws_manager import manager
-from .replay import replays
-from .defense import defense
-from .auth import require_auth
+from asyncio import create_task
 from datetime import datetime, timezone
-from backend.telemetry_helper import TelemetryMiddleware, get_events
+
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
+
+from .ai_client import suggest_defense_for_event, summarize_replay
+from .auth import require_auth
+from .defense import defense
+from .replay import replays
+from .simulation import sim
 from .telemetry.telemetry import telemetry
-from .ai_client import summarize_replay, suggest_defense_for_event
-from fastapi import HTTPException
+from .telemetry_helper import TelemetryMiddleware, get_events
+from .ws_manager import manager
 
 app = FastAPI(title="Guardio Backend")
-# attach telemetry middleware
+
+# Attach telemetry middleware
 app.add_middleware(TelemetryMiddleware)
 
 
 @app.get("/health")
 async def health():
-    return JSONResponse({"status": "ok", "ts": datetime.utcnow().isoformat() + "Z"})
+    return JSONResponse(
+        {"status": "ok", "ts": datetime.utcnow().isoformat() + "Z"}
+    )
 
 
 @app.post("/start")
@@ -39,12 +44,8 @@ async def launch_attack(payload: dict, x_api_key: str = Depends(require_auth)):
     if not name:
         return JSONResponse({"error": "missing attack name"}, status_code=400)
     # run attack in background
-    from asyncio import create_task
     create_task(sim.launch_attack(name))
     return {"launched": name}
-
-
-from fastapi import Depends
 
 
 @app.post("/defense/firewall/block")
@@ -72,7 +73,9 @@ async def create_segment(payload: dict, x_api_key: str = Depends(require_auth)):
     name = payload.get("name")
     hosts = payload.get("hosts") or []
     if not name:
-        return JSONResponse({"error": "missing segment name"}, status_code=400)
+        return JSONResponse(
+            {"error": "missing segment name"}, status_code=400
+        )
     await defense.create_segment(name, set(hosts))
     return {"segment": name, "hosts": hosts}
 
@@ -124,7 +127,7 @@ async def defense_status():
     return {
         "blocked": list(defense.firewall_blocked_hosts),
         "honeypots": list(defense.honeypots),
-        "segments": {k: list(v) for k, v in defense.segments.items()}
+        "segments": {k: list(v) for k, v in defense.segments.items()},
     }
 
 
@@ -178,13 +181,16 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_text()
 
             if data == "ping":
-                await websocket.send_json({
-                    "type": "pong",
-                    "ts": datetime.now(timezone.utc).isoformat()
-                })
+                await websocket.send_json(
+                    {
+                        "type": "pong",
+                        "ts": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
 
     except WebSocketDisconnect:
         await manager.disconnect(websocket)
+
 
 @app.get("/telemetry/events")
 def telemetry_events():

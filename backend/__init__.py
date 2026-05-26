@@ -1,1 +1,4 @@
-from .main import app  # expose app for uvicorn
+from .main import app as app
+from .defense import defense
+from .telemetry import telemetry
+__all__ = ["app", "defense", "telemetry"]
