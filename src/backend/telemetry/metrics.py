@@ -1,19 +1,17 @@
-from prometheus_client import Counter, Gauge, Histogram
+class _NoOpMetric:
+    def labels(self, *args, **kwargs):
+        return self
 
-# HTTP metrics
-REQUEST_COUNT = Counter(
-    "http_requests_total",
-    "Total HTTP requests",
-    ["method", "path", "status"],
-)
+    def inc(self, *args, **kwargs):
+        return None
 
-REQUEST_LATENCY = Histogram(
-    "http_request_duration_seconds",
-    "Request latency",
-    ["method", "path"],
-)
+    def dec(self, *args, **kwargs):
+        return None
 
-IN_PROGRESS = Gauge(
-    "http_requests_in_progress",
-    "Requests currently being processed",
-)
+    def observe(self, *args, **kwargs):
+        return None
+
+
+REQUEST_COUNT = _NoOpMetric()
+REQUEST_LATENCY = _NoOpMetric()
+IN_PROGRESS = _NoOpMetric()

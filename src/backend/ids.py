@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from .utils import utc_now_iso
 
 
@@ -35,3 +37,30 @@ class IDS:
 
 
 ids = IDS()
+
+
+def score_packet(pkt: dict) -> float:
+    payload = str(pkt.get("payload", "")).lower()
+    if payload:
+        score = 0.0
+        if "admin" in payload:
+            score += 0.4
+        if "passwd" in payload or "shadow" in payload:
+            score += 0.8
+        if "/etc/passwd" in payload:
+            score += 0.2
+        return min(1.0, score)
+
+    return ids.score_packet(pkt)
+
+
+def generate_alert(pkt: dict, score: float) -> dict:
+    return {
+        "alert_id": uuid4().hex,
+        "source_ip": pkt.get("source_ip"),
+        "destination_ip": pkt.get("destination_ip"),
+        "protocol": pkt.get("protocol"),
+        "payload": pkt.get("payload"),
+        "score": score,
+        "timestamp": utc_now_iso(),
+    }

@@ -1,1 +1,1 @@
-from src.backend.telemetry.tracing import *
+"""Telemetry tracing hooks placeholder."""

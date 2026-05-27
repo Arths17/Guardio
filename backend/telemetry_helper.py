@@ -1,8 +1,4 @@
-from src.backend.telemetry.telemetry_helper import (
-    EVENT_STORE,
-    TelemetryMiddleware,
-    get_events,
-    store_event,
-)
+from backend.telemetry.middleware import TelemetryMiddleware
+from backend.telemetry.store import EVENT_STORE, get_events, store_event
 
-__all__ = ["TelemetryMiddleware", "get_events", "store_event", "EVENT_STORE"]
+__all__ = ["TelemetryMiddleware", "EVENT_STORE", "get_events", "store_event"]

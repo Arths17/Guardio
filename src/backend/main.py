@@ -1,5 +1,6 @@
 from asyncio import create_task
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import (
     Depends,
@@ -10,9 +11,54 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.responses import JSONResponse
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from .AI import gemini as gemini_helper
+from .ai_client import suggest_defense_for_event, summarize_replay
+from .auth import require_auth
+from .db import db
+from .defense import defense
+from .replay import replays
+from .simulation import sim
+from .telemetry import telemetry
+from .telemetry_helper import TelemetryMiddleware, get_events
+from .ws_manager import manager
+
+try:
+    from prometheus_client import (
+        CONTENT_TYPE_LATEST as _CONTENT_TYPE_LATEST,
+        generate_latest as _generate_latest,
+    )
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    _CONTENT_TYPE_LATEST = "text/plain; charset=utf-8"
+
+    def _generate_latest_impl() -> bytes:
+        return b""
+else:
+
+    def _generate_latest_impl() -> bytes:
+        return _generate_latest()
+
+CONTENT_TYPE_LATEST = _CONTENT_TYPE_LATEST
+
+
+def generate_latest() -> bytes:
+    return _generate_latest_impl()
+
+try:
+    from opentelemetry.instrumentation.fastapi import (
+        FastAPIInstrumentor as _ImportedFastAPIInstrumentor,
+    )
+except ModuleNotFoundError:  # pragma: no cover - optional dependency
+    class _NoOpFastAPIInstrumentor:
+        @staticmethod
+        def instrument_app(app):
+            return None
+
+    _ImportedFastAPIInstrumentor = _NoOpFastAPIInstrumentor  # type: ignore[assignment]
+
+FastAPIInstrumentor: Any = _ImportedFastAPIInstrumentor()
+
+from .AI import gemini as gemini_helper
 from .ai_client import suggest_defense_for_event, summarize_replay
 from .auth import require_auth
 from .defense import defense
@@ -53,18 +99,6 @@ async def readiness():
 @app.get("/health")
 async def health():
     return await liveness()
-
-
-@app.post("/start")
-async def start_sim(x_api_key: str = Depends(require_auth)):
-    await sim.start()
-    return {"started": True}
-
-
-@app.post("/stop")
-async def stop_sim(x_api_key: str = Depends(require_auth)):
-    rid = await sim.stop()
-    return {"stopped": True, "replay_id": rid}
 
 
 @app.post("/attack")
@@ -205,6 +239,18 @@ async def ai_suggest(payload: dict, x_api_key: str = Depends(require_auth)):
         raise HTTPException(status_code=503, detail=str(e))
 
 
+@app.post("/AI/generate")
+async def ai_generate(payload: dict):
+    prompt = payload.get("prompt", "")
+    try:
+        return {"text": gemini_helper.generate_text(prompt)}
+    except Exception:
+        raise HTTPException(
+            status_code=503,
+            detail="Gemini service is currently unavailable",
+        )
+
+
 # -------------------------
 # WebSocket
 # -------------------------
@@ -231,5 +277,6 @@ async def websocket_endpoint(websocket: WebSocket):
 @app.get("/telemetry/events")
 def telemetry_events():
     return get_events()
+
 
 FastAPIInstrumentor.instrument_app(app)

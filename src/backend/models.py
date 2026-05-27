@@ -3,6 +3,29 @@ from typing import Literal, Any, Dict, List
 from datetime import datetime
 
 
+class Attack(BaseModel):
+    id: str
+    name: str
+    description: str
+    severity: int
+    tactics: List[str]
+    techniques: List[str]
+
+
+class Defense(BaseModel):
+    id: str
+    name: str
+    description: str
+    mitigates: List[str]
+
+
+class SimulationResult(BaseModel):
+    attack_id: str
+    defense_id: str
+    success: bool
+    details: str
+
+
 class PacketEvent(BaseModel):
     type: Literal["packet"] = "packet"
     src: str

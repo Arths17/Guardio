@@ -1,8 +1,10 @@
+import json
 import sqlite3
 import threading
 from pathlib import Path
 from typing import Any, Dict, List
 
+from . import replay as replay_module
 from .utils import json_dumps, utc_now_iso
 
 DB_PATH = "guardio.db"
@@ -128,8 +130,6 @@ class DB:
             (rid,),
         ).fetchall()
         conn.close()
-        import json
-
         return [json.loads(row[0]) for row in rows]
 
     def purge_replay(self, rid: str):
@@ -142,3 +142,23 @@ class DB:
 
 
 db = DB()
+
+
+def save_replay(replay_data: Dict[str, Any]):
+    return replay_module.save_replay(replay_data)
+
+
+def list_replays():
+    return replay_module.list_replays()
+
+
+def get_replay(rid: str):
+    return replay_module.get_replay(rid)
+
+
+def delete_replay(rid: str):
+    return replay_module.delete_replay(rid)
+
+
+def get_replay_summary(rid: str):
+    return replay_module.get_replay_summary(rid)
