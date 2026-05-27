@@ -6,6 +6,7 @@ client = TestClient(app)
 valid_api_key = "test-key-123"
 invalid_api_key = "bad-key"
 
+
 def test_auth():
     # Test with valid API key
     response = client.post(
@@ -32,4 +33,3 @@ def test_auth():
     )
     assert response.status_code == 401
     assert response.json() == {"detail": "invalid api key"}
-
