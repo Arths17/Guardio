@@ -93,6 +93,7 @@ class DB:
                 utc_now_iso(),
             ),
         )
+        cur.execute("DELETE FROM events WHERE replay_id = ?", (rid,))
         for ev in events:
             cur.execute(
                 (

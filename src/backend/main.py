@@ -1,6 +1,8 @@
 from asyncio import create_task
 from datetime import datetime, timezone
 from typing import Any
+import logging
+import uuid
 
 from fastapi import (
     Depends,
@@ -22,6 +24,11 @@ from .simulation import sim
 from .telemetry import telemetry
 from .telemetry_helper import TelemetryMiddleware, get_events
 from .ws_manager import manager
+from .logging_config import configure_logging
+from .env import validate_env
+
+configure_logging()
+validate_env()
 
 try:
     from prometheus_client import (
@@ -56,24 +63,32 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
 
     _ImportedFastAPIInstrumentor = _NoOpFastAPIInstrumentor  # type: ignore[assignment]
 
+# Attach the imported instrumentor
 FastAPIInstrumentor: Any = _ImportedFastAPIInstrumentor()
-
-from .AI import gemini as gemini_helper
-from .ai_client import suggest_defense_for_event, summarize_replay
-from .auth import require_auth
-from .defense import defense
-from .db import db
-from .replay import replays
-from .simulation import sim
-from .telemetry import telemetry
-from .telemetry_helper import TelemetryMiddleware, get_events
-from .ws_manager import manager
 
 # cspell:ignore Guardio
 app = FastAPI(title="Guardio Backend")
 
 # Attach telemetry middleware
 app.add_middleware(TelemetryMiddleware)
+configure_logging()
+
+
+@app.middleware("http")
+async def add_request_id(request, call_next):
+    rid = request.headers.get("X-Request-Id") or str(uuid.uuid4())
+    request.state.request_id = rid
+    response = await call_next(request)
+    response.headers["X-Request-Id"] = rid
+    return response
+
+
+@app.exception_handler(Exception)
+async def handle_unhandled_exception(request, exc: Exception):
+    logger = logging.getLogger("backend")
+    rid = getattr(request.state, "request_id", None)
+    logger.exception("Unhandled exception", exc_info=exc, extra={"request_id": rid})
+    return JSONResponse({"error": "internal_server_error", "request_id": rid}, status_code=500)
 
 
 def _utc_timestamp() -> str:

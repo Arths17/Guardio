@@ -1,1 +1,11 @@
 .env
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+guardio.db
+guardio.egg-info/
+src/backend.egg-info/

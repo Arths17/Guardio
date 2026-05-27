@@ -41,7 +41,7 @@ class AttackEvent(BaseModel):
     type: Literal["attack"] = "attack"
     name: str
     stage: Literal["start", "update", "end"]
-    details: Dict[str, Any] = {}
+    details: Dict[str, Any] = Field(default_factory=dict)
     ts: datetime
 
 

@@ -90,6 +90,7 @@ class DB:
             "INSERT OR REPLACE INTO replays (id, ts) VALUES (?,?)",
             (rid, utc_now_iso()),
         )
+        cur.execute("DELETE FROM events WHERE replay_id = ?", (rid,))
         for ev in events:
             cur.execute(
                 (

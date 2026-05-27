@@ -9,6 +9,8 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.responses import JSONResponse
+import logging
+import uuid
 
 from backend.AI import gemini as gemini_helper
 from backend.ai_client import suggest_defense_for_event, summarize_replay
@@ -20,6 +22,11 @@ from backend.simulation import sim
 from backend.telemetry import telemetry
 from backend.telemetry_helper import TelemetryMiddleware, get_events
 from backend.ws_manager import manager
+from .logging_config import configure_logging
+from .env import validate_env
+
+configure_logging()
+validate_env()
 
 try:
     from prometheus_client import (
@@ -61,6 +68,25 @@ FastAPIInstrumentor = _fastapi_instrumentor
 
 app = FastAPI(title="Guardio Backend")
 app.add_middleware(TelemetryMiddleware)
+
+configure_logging()
+
+
+@app.middleware("http")
+async def add_request_id(request, call_next):
+    rid = request.headers.get("X-Request-Id") or str(uuid.uuid4())
+    request.state.request_id = rid
+    response = await call_next(request)
+    response.headers["X-Request-Id"] = rid
+    return response
+
+
+@app.exception_handler(Exception)
+async def handle_unhandled_exception(request, exc: Exception):
+    logger = logging.getLogger("backend")
+    rid = getattr(request.state, "request_id", None)
+    logger.exception("Unhandled exception", exc_info=exc, extra={"request_id": rid})
+    return JSONResponse({"error": "internal_server_error", "request_id": rid}, status_code=500)
 
 
 def _utc_timestamp() -> str:
@@ -110,19 +136,21 @@ async def launch_attack(payload: dict, x_api_key: str = Depends(require_auth)):
 
 
 @app.post("/simulation/start")
-async def simulation_start():
+async def simulation_start(x_api_key: str = Depends(require_auth)):
     await sim.start()
     return {"status": "simulation started"}
 
 
 @app.post("/simulation/stop")
-async def simulation_stop():
+async def simulation_stop(x_api_key: str = Depends(require_auth)):
     await sim.stop()
     return {"status": "simulation stopped"}
 
 
 @app.post("/simulation/attack")
-async def simulation_attack(payload: dict):
+async def simulation_attack(
+    payload: dict, x_api_key: str = Depends(require_auth)
+):
     name = payload.get("name")
     if not name:
         return JSONResponse({"error": "missing attack name"}, status_code=400)
@@ -262,7 +290,9 @@ async def ai_generate(payload: dict):
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(
+    websocket: WebSocket, x_api_key: str = Depends(require_auth)
+):
     await manager.connect(websocket)
     try:
         while True:

@@ -4,10 +4,11 @@ from backend.main import app
 
 
 client = TestClient(app)
+headers = {"X-API-Key": "devkey"}
 
 
 def test_simulation_start_and_stop():
-    response = client.post("/simulation/start")
+    response = client.post("/simulation/start", headers=headers)
     assert response.status_code == 200
     assert response.json() == {"status": "simulation started"}
 
@@ -17,7 +18,7 @@ def test_simulation_start_and_stop():
     assert status_data["running"] is True
     assert status_data["active_attack"] is not None
 
-    stop_response = client.post("/simulation/stop")
+    stop_response = client.post("/simulation/stop", headers=headers)
     assert stop_response.status_code == 200
     assert stop_response.json() == {"status": "simulation stopped"}
 
@@ -29,9 +30,11 @@ def test_simulation_start_and_stop():
 
 
 def test_simulation_attack_flow():
-    client.post("/simulation/start")
+    client.post("/simulation/start", headers=headers)
 
-    attack_response = client.post("/simulation/attack", json={"name": "ddos"})
+    attack_response = client.post(
+        "/simulation/attack", json={"name": "ddos"}, headers=headers
+    )
     assert attack_response.status_code == 200
     assert attack_response.json() == {"status": "attack ddos started"}
 
@@ -41,7 +44,7 @@ def test_simulation_attack_flow():
     assert status_data["running"] is True
     assert status_data["active_attack"] == "ddos"
 
-    client.post("/simulation/stop")
+    client.post("/simulation/stop", headers=headers)
 
     final_status_response = client.get("/simulation/status")
     assert final_status_response.status_code == 200

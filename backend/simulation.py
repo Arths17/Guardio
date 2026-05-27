@@ -2,7 +2,6 @@ import asyncio
 import random
 from typing import Any, Dict, List, Optional
 
-from backend.db import db
 from backend.defense import defense
 from backend.ids import ids
 from backend.telemetry import telemetry
@@ -149,10 +148,6 @@ class Simulation:
             {"type": "state", "running": False, "ts": utc_now_iso()}
         )
         rid = replays.save(self._events)
-        try:
-            db.save_replay(rid, self._events)
-        except Exception:
-            pass
         self._events = []
         self._compromised_hosts.clear()
         self.active_attack = None
