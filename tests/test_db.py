@@ -49,3 +49,25 @@ def test_replay_persistence():
     # Verify it is no longer present in the list
     post_delete_replays = list_replays()
     assert not any(r["id"] == "test-replay-1" for r in post_delete_replays)
+
+    def test_replay_summary_behavior():
+        """Verifies that the summary function accurately parses event counts or metrics."""
+        replay_data = {
+            "id": "test-summary-val",
+            "name": "Summary Test",
+            "events": [
+                {"event_id": "evt-1", "type": "login_attempt"},
+                {"event_id": "evt-2", "type": "file_access"},
+                {"event_id": "evt-3", "type": "file_access"},
+            ],
+        }
+
+        save_replay(replay_data)
+
+        summary = get_replay_summary("test-summary-val")
+        assert summary is not None
+        assert summary["id"] == replay_data["id"]
+        assert summary["name"] == replay_data["name"]
+        assert summary["event_counts"]["login_attempt"] == 1
+        assert summary["event_counts"]["file_access"] == 2
+
