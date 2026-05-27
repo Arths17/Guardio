@@ -10,6 +10,7 @@ from .telemetry.telemetry import telemetry
 
 class WebSocketManager:
     def __init__(self) -> None:
+            await self.disconnect(websocket)
         self.active: List[WebSocket] = []
         self.lock = asyncio.Lock()
 

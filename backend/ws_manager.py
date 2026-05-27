@@ -28,6 +28,7 @@ class WebSocketManager:
             }
             await websocket.send_json(state)
         except Exception:
+            await self.disconnect(websocket)
             return
 
     async def disconnect(self, websocket: WebSocket) -> None:
