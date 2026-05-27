@@ -1,17 +1,31 @@
+from __future__ import annotations
+
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import logging
 import os
 import time
-import logging
-from concurrent.futures import ThreadPoolExecutor
+from typing import Optional
+
 from dotenv import load_dotenv
+
 from ..telemetry.telemetry import telemetry as _telemetry
 
 try:
     from prometheus_client import Counter as _Counter
 
-    _ai_calls_counter = _Counter("guardio_ai_calls_total", "Total AI calls")
-    _ai_failures_counter = _Counter("guardio_ai_failures_total", "Total AI failures")
-    _ai_circuit_counter = _Counter("guardio_ai_circuit_open_total", "AI circuit openings")
+    _ai_calls_counter = _Counter(
+        "guardio_ai_calls_total",
+        "Total AI calls",
+    )
+    _ai_failures_counter = _Counter(
+        "guardio_ai_failures_total",
+        "Total AI failures",
+    )
+    _ai_circuit_counter = _Counter(
+        "guardio_ai_circuit_open_total",
+        "AI circuit openings",
+    )
 except Exception:
     _ai_calls_counter = None
     _ai_failures_counter = None
@@ -28,11 +42,11 @@ _CIRCUIT = {
 }
 
 
-def _get_api_key() -> str | None:
+def _get_api_key() -> Optional[str]:
     return os.getenv("GEMINI_API_KEY")
 
 
-def _call_genai(api_key: str, prompt: str, system_instruction: str | None):
+def _call_genai(api_key: str, prompt: str, system_instruction: Optional[str]) -> str:
     from google import genai
 
     client = genai.Client(api_key=api_key)
@@ -52,12 +66,12 @@ def _call_genai(api_key: str, prompt: str, system_instruction: str | None):
 
 def generate_text(
     prompt: str,
-    system_instruction: str | None = None,
+    system_instruction: Optional[str] = None,
     timeout: float = 8.0,
     retries: int = 2,
     circuit_failures: int = 3,
     circuit_cooldown: float = 60.0,
-):
+) -> str:
     """Generate text using Gemini with retries, timeout and a simple circuit breaker.
 
     Returns a deterministic stub when AI is disabled or API key missing. On repeated
@@ -75,7 +89,8 @@ def generate_text(
 
     api_key = _get_api_key()
     if not api_key:
-        return "[ai-missing-key] " + (prompt[:400] + ("..." if len(prompt) > 400 else ""))
+        stub = prompt[:400] + ("..." if len(prompt) > 400 else "")
+        return "[ai-missing-key] " + stub
 
     attempt = 0
     last_exc = None
@@ -101,9 +116,11 @@ def generate_text(
         if _ai_circuit_counter is not None:
             _ai_circuit_counter.inc()
         _telemetry.increment("ai_circuit_open")
+
     if _ai_failures_counter is not None:
         _ai_failures_counter.inc()
     _telemetry.increment("ai_failures")
+
     return f"[ai-error] {last_exc}"
 
 
@@ -134,7 +151,7 @@ def main():
         try:
             prompt = input("Enter your prompt: ")
             # stop on empty input
-            decide = client.models.generate_content(
+            decide_resp = client.models.generate_content(
                 model="gemini-3.1-flash-lite",
                 config={
                     "system_instruction": (
@@ -143,8 +160,9 @@ def main():
                 },
                 contents=prompt + " do you want to continue the conversation?",
             )
-            decide = decide.text.strip().upper()
-            if decide == "YES" or decide == "NO":
+            decide_text = getattr(decide_resp, "text", "") or ""
+            decide_text = decide_text.strip().upper()
+            if decide_text in ("YES", "NO"):
                 break
             result = chat.send_message(prompt)
             print(result.text)

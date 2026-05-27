@@ -64,6 +64,33 @@ def test_status_and_metrics():
     assert "counts" in metrics.json()
 
 
+def test_request_id_middleware_and_prometheus():
+    response = client.get("/live", headers={"X-Request-Id": "req-123"})
+    assert response.status_code == 200
+    assert response.headers.get("X-Request-Id") == "req-123"
+
+    prometheus = client.get("/metrics/prometheus")
+    assert prometheus.status_code == 200
+    assert prometheus.headers["content-type"].startswith("text/plain")
+
+
+def test_global_exception_handler(monkeypatch):
+    from backend import main as backend_main
+    from fastapi.testclient import TestClient
+
+    async def boom():
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(backend_main.manager, "count", boom)
+
+    local_client = TestClient(app, raise_server_exceptions=False)
+    response = local_client.get("/status")
+    assert response.status_code == 500
+    payload = response.json()
+    assert payload["error"] == "internal_server_error"
+    assert "request_id" in payload
+
+
 def test_replay_lifecycle():
     headers = {"X-API-Key": "devkey"}
 

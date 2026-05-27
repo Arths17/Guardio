@@ -88,7 +88,8 @@ async def handle_unhandled_exception(request, exc: Exception):
     logger = logging.getLogger("backend")
     rid = getattr(request.state, "request_id", None)
     logger.exception("Unhandled exception", exc_info=exc, extra={"request_id": rid})
-    return JSONResponse({"error": "internal_server_error", "request_id": rid}, status_code=500)
+    payload = {"error": "internal_server_error", "request_id": rid}
+    return JSONResponse(payload, status_code=500)
 
 
 def _utc_timestamp() -> str:

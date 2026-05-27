@@ -1,10 +1,12 @@
+from typing import Any, Dict, List, Optional
+
 from backend.AI import gemini as gemini_helper
 from backend.db import db
 from backend.replay import replays
 
 
 def summarize_replay(rid: str) -> str:
-    events = db.get_events(rid) if db else None
+    events: Optional[List[Dict[str, Any]]] = db.get_events(rid) if db else None
     if not events:
         events = replays.get(rid) or []
 
@@ -24,7 +26,7 @@ def summarize_replay(rid: str) -> str:
     )
 
 
-def suggest_defense_for_event(event: dict) -> str:
+def suggest_defense_for_event(event: Dict[str, Any]) -> str:
     prompt = (
         f"Given this event: {event!r}\n"
         "What defensive action should be taken (one short sentence)?"

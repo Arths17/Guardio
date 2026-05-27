@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  guardio:
+    build: .
+    image: guardio:local
+    ports:
+      - "8000:8000"
+    environment:
+      - GUARDIO_DISABLE_AI=true
+      - GUARDIO_API_KEY=devkey
+    depends_on:
+      - prometheus
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
