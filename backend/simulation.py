@@ -32,10 +32,15 @@ class Simulation:
         return random.choice(self.topology[pool])
 
     def _target_host(self) -> str:
-        return random.choice(self.topology["servers"] + self.topology["databases"])
+        return random.choice(
+            self.topology["servers"] + self.topology["databases"]
+        )
 
     def _generate_packet(
-        self, normal: bool = True, src: Optional[str] = None, dst: Optional[str] = None
+        self,
+        normal: bool = True,
+        src: Optional[str] = None,
+        dst: Optional[str] = None,
     ) -> dict:
         packet = {
             "type": "packet",
@@ -102,10 +107,14 @@ class Simulation:
                 await self._emit_packet(self._generate_packet(normal=True))
 
                 if random.random() < 0.10:
-                    await self._emit_packet(self._generate_packet(normal=False))
+                    await self._emit_packet(
+                        self._generate_packet(normal=False)
+                    )
 
                 if self._compromised_hosts and random.random() < 0.15:
-                    infected_src = random.choice(sorted(self._compromised_hosts))
+                    infected_src = random.choice(
+                        sorted(self._compromised_hosts)
+                    )
                     await self._emit_packet(
                         self._generate_packet(normal=False, src=infected_src)
                     )
@@ -219,7 +228,11 @@ class Simulation:
                 "type": "attack",
                 "name": "malware",
                 "stage": "update",
-                "details": {"infected": new_victim, "from": victim, "hop": hop},
+                "details": {
+                    "infected": new_victim,
+                    "from": victim,
+                    "hop": hop,
+                },
                 "ts": utc_now_iso(),
             }
             await self._record_event(event)
@@ -242,7 +255,9 @@ class Simulation:
                 "ts": utc_now_iso(),
             }
             await self._record_event(event)
-            await self._emit_packet(self._generate_packet(normal=False, dst=target))
+            await self._emit_packet(
+                self._generate_packet(normal=False, dst=target)
+            )
             await asyncio.sleep(0.12)
 
     async def _attack_phishing(self) -> None:
@@ -267,7 +282,9 @@ class Simulation:
             await asyncio.sleep(0.10)
 
     async def _attack_botnet(self) -> None:
-        compromised = random.sample(self.topology["iot"] + self.topology["clients"], 8)
+        compromised = random.sample(
+            self.topology["iot"] + self.topology["clients"], 8
+        )
         self._compromised_hosts.update(compromised)
         for host in compromised:
             event = {
@@ -293,7 +310,9 @@ class Simulation:
             "active_attack": self.active_attack,
             "events_buffered": len(self._events),
             "compromised_hosts": sorted(self._compromised_hosts),
-            "topology": {key: list(value) for key, value in self.topology.items()},
+            "topology": {
+                key: list(value) for key, value in self.topology.items()
+            },
         }
 
 

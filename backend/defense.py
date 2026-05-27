@@ -40,7 +40,8 @@ class DefenseManager:
                 "blocked": sorted(self.firewall_blocked_hosts),
                 "honeypots": sorted(self.honeypots),
                 "segments": {
-                    name: sorted(hosts) for name, hosts in self.segments.items()
+                    name: sorted(hosts)
+                    for name, hosts in self.segments.items()
                 },
             }
 

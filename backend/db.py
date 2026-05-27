@@ -1,6 +1,6 @@
-import sqlite3
-from typing import List, Dict, Any
 import threading
+import sqlite3
+from typing import Any, Dict, List
 
 from .utils import utc_now_iso, json_dumps
 
@@ -47,7 +47,10 @@ class DB:
         )
         for ev in events:
             cur.execute(
-                "INSERT INTO events (replay_id, type, payload, ts) VALUES (?,?,?,?)",
+                (
+                    "INSERT INTO events (replay_id, type, payload, ts) "
+                    "VALUES (?,?,?,?)"
+                ),
                 (rid, ev.get("type"), json_dumps(ev), ev.get("ts")),
             )
         conn.commit()
@@ -66,7 +69,10 @@ class DB:
             """
         ).fetchall()
         conn.close()
-        return [{"id": rid, "ts": ts, "event_count": count} for rid, ts, count in rows]
+        return [
+            {"id": rid, "ts": ts, "event_count": count}
+            for rid, ts, count in rows
+        ]
 
     def get_events(self, rid: str) -> List[Dict[str, Any]]:
         conn = sqlite3.connect(self.path)

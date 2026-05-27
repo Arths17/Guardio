@@ -12,12 +12,16 @@ def _get_api_key() -> str | None:
 
 
 def generate_text(prompt: str, system_instruction: str | None = None) -> str:
-    """Generate text using Gemini. Falls back to a deterministic stub if
-    `GUARDIO_DISABLE_AI` is set or the API key is missing.
+    """Generate text using Gemini.
+
+    Falls back to a deterministic stub if `GUARDIO_DISABLE_AI` is set or
+    the API key is missing.
     """
     disable = os.getenv("GUARDIO_DISABLE_AI", "false").lower() == "true"
     if disable:
-        return "[ai-stub] " + (prompt[:400] + ("..." if len(prompt) > 400 else ""))
+        return "[ai-stub] " + (
+            prompt[:400] + ("..." if len(prompt) > 400 else "")
+        )
 
     api_key = _get_api_key()
     if not api_key:
@@ -33,7 +37,10 @@ def generate_text(prompt: str, system_instruction: str | None = None) -> str:
             model="gemini-3.1-flash-lite",
             config={
                 "system_instruction": system_instruction
-                or "You are a helpful assistant that provides concise and accurate information about cybersecurity.",
+                or (
+                    "You are a helpful assistant that provides concise and "
+                    "accurate information about cybersecurity."
+                ),
             },
             contents=prompt,
         )
@@ -55,7 +62,14 @@ def main():
     chat = client.chats.create(
         model="gemini-3.1-flash-lite",
         config={
-            "system_instruction": "You are a helpful assistant that provides concise and accurate information about cybersecurity. You are a friendly mentor who is always eager to share knowledge and help others understand complex cybersecurity concepts in a simple way. You can provide explanations, tips, and best practices related to cybersecurity topics.",
+            "system_instruction": (
+                "You are a helpful assistant that provides concise and "
+                "accurate information about cybersecurity. You are a "
+                "friendly mentor who is always eager to share knowledge and "
+                "help others understand complex cybersecurity concepts in a "
+                "simple way. You can provide explanations, tips, and best "
+                "practices related to cybersecurity topics."
+            ),
         },
     )
     while True:
@@ -64,7 +78,11 @@ def main():
             # stop on empty input
             decide = client.models.generate_content(
                 model="gemini-3.1-flash-lite",
-                config={"system_instruction": "Provide only a yes or no answer."},
+                config={
+                    "system_instruction": (
+                        "Provide only a yes or no answer."
+                    )
+                },
                 contents=prompt + " do you want to continue the conversation?",
             )
             decide = decide.text.strip().upper()
@@ -74,7 +92,8 @@ def main():
             print(result.text)
         except Exception:
             print(
-                "You ran out of API credits, please upgrade your plan to continue or wait until the quota resets."
+                "You ran out of API credits, please upgrade your plan to "
+                "continue or wait until the quota resets."
             )
             break
 

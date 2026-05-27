@@ -15,12 +15,16 @@ class Telemetry:
 
     def record_event(self, event: Dict[str, Any]):
         with self._lock:
-            self._counts[f"events_{event.get('type', 'unknown')}"] += 1
+            event_type = event.get("type", "unknown")
+            self._counts[f"events_{event_type}"] += 1
             self._last_event = dict(event)
 
     def snapshot(self) -> Dict[str, Any]:
         with self._lock:
-            return {"counts": dict(self._counts), "last_event": self._last_event}
+            return {
+                "counts": dict(self._counts),
+                "last_event": self._last_event,
+            }
 
     def reset(self):
         with self._lock:

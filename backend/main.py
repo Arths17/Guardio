@@ -1,7 +1,13 @@
 from asyncio import create_task
 from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import JSONResponse
 
 from .ai_client import suggest_defense_for_event, summarize_replay
@@ -13,6 +19,7 @@ from .telemetry.telemetry import telemetry
 from .telemetry_helper import TelemetryMiddleware, get_events
 from .ws_manager import manager
 
+# cspell:ignore Guardio
 app = FastAPI(title="Guardio Backend")
 
 # Attach telemetry middleware
@@ -69,13 +76,13 @@ async def unblock_host(payload: dict, x_api_key: str = Depends(require_auth)):
 
 
 @app.post("/defense/segment")
-async def create_segment(payload: dict, x_api_key: str = Depends(require_auth)):
+async def create_segment(
+    payload: dict, x_api_key: str = Depends(require_auth)
+):
     name = payload.get("name")
     hosts = payload.get("hosts") or []
     if not name:
-        return JSONResponse(
-            {"error": "missing segment name"}, status_code=400
-        )
+        return JSONResponse({"error": "missing segment name"}, status_code=400)
     await defense.create_segment(name, set(hosts))
     return {"segment": name, "hosts": hosts}
 
@@ -96,7 +103,9 @@ async def add_honeypot(payload: dict, x_api_key: str = Depends(require_auth)):
 
 
 @app.delete("/defense/honeypot")
-async def remove_honeypot(payload: dict, x_api_key: str = Depends(require_auth)):
+async def remove_honeypot(
+    payload: dict, x_api_key: str = Depends(require_auth)
+):
     host = payload.get("host")
     if not host:
         return JSONResponse({"error": "missing host"}, status_code=400)

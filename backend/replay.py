@@ -10,12 +10,20 @@ class ReplayStore:
 
     def save(self, events: List[dict]) -> str:
         rid = uuid.uuid4().hex
-        self.store[rid] = {"id": rid, "ts": utc_now_iso(), "events": list(events)}
+        self.store[rid] = {
+            "id": rid,
+            "ts": utc_now_iso(),
+            "events": list(events),
+        }
         return rid
 
     def list(self):
         return [
-            {"id": rid, "event_count": len(payload["events"]), "ts": payload["ts"]}
+            {
+                "id": rid,
+                "event_count": len(payload["events"]),
+                "ts": payload["ts"],
+            }
             for rid, payload in self.store.items()
         ]
 
@@ -29,7 +37,11 @@ class ReplayStore:
         payload = self.store.get(rid)
         if payload is None:
             return None
-        return {"id": rid, "event_count": len(payload["events"]), "ts": payload["ts"]}
+        return {
+            "id": rid,
+            "event_count": len(payload["events"]),
+            "ts": payload["ts"],
+        }
 
 
 replays = ReplayStore()
