@@ -1,9 +1,9 @@
 from backend.replay import (
-    save_replay,
-    list_replays,
-    get_replay,
     delete_replay,
-    get_replay_summary,  # Added to fulfill the summary requirement
+    get_replay,
+    get_replay_summary,
+    list_replays,
+    save_replay,
 )
 
 
@@ -53,7 +53,7 @@ def test_replay_persistence():
 
 
 def test_replay_summary_behavior():
-    """Verifies that the summary function accurately parses event counts or metrics."""
+    """Verifies that replay summaries include event counts."""
     replay_data = {
         "id": "test-summary-val",
         "name": "Summary Test",
@@ -74,5 +74,4 @@ def test_replay_summary_behavior():
         assert summary["total_events"] == 3
         assert summary["event_types"]["file_access"] == 2
     finally:
-        # Clean up after the test runs
         delete_replay("test-summary-val")

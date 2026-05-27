@@ -1,13 +1,13 @@
 from backend.db import (
-    save_replay,
-    list_replays,
-    get_replay,
     delete_replay,
+    get_replay,
+    get_replay_summary,
+    list_replays,
+    save_replay,
 )
 
 
 def test_replay_persistence():
-    # 1. Create a sample replay data
     replay_data = {
         "id": "test-replay-1",
         "name": "Test Replay",
@@ -25,49 +25,46 @@ def test_replay_persistence():
         ],
     }
 
-    # 2. Save the replay
     save_replay(replay_data)
 
-    # 3. List replays and check if the new replay is listed
     replays = list_replays()
     assert any(r["id"] == "test-replay-1" for r in replays)
 
-    # 4. Fetch the replay and check if the data matches
     fetched_replay = get_replay("test-replay-1")
     assert fetched_replay is not None
     assert fetched_replay["id"] == replay_data["id"]
     assert fetched_replay["name"] == replay_data["name"]
     assert fetched_replay["events"] == replay_data["events"]
 
-    # 5. Delete the replay and verify it's gone (Completing the lifecycle)
     delete_replay("test-replay-1")
 
-    # Verify it can no longer be fetched
     deleted_replay = get_replay("test-replay-1")
     assert deleted_replay is None or deleted_replay == {}
 
-    # Verify it is no longer present in the list
     post_delete_replays = list_replays()
     assert not any(r["id"] == "test-replay-1" for r in post_delete_replays)
 
-    def test_replay_summary_behavior():
-        """Verifies that the summary function accurately parses event counts or metrics."""
-        replay_data = {
-            "id": "test-summary-val",
-            "name": "Summary Test",
-            "events": [
-                {"event_id": "evt-1", "type": "login_attempt"},
-                {"event_id": "evt-2", "type": "file_access"},
-                {"event_id": "evt-3", "type": "file_access"},
-            ],
-        }
 
-        save_replay(replay_data)
+def test_replay_summary_behavior():
+    replay_data = {
+        "id": "test-summary-val",
+        "name": "Summary Test",
+        "events": [
+            {"event_id": "evt-1", "type": "login_attempt"},
+            {"event_id": "evt-2", "type": "file_access"},
+            {"event_id": "evt-3", "type": "file_access"},
+        ],
+    }
 
+    save_replay(replay_data)
+
+    try:
         summary = get_replay_summary("test-summary-val")
         assert summary is not None
         assert summary["id"] == replay_data["id"]
         assert summary["name"] == replay_data["name"]
+        assert summary["total_events"] == 3
         assert summary["event_counts"]["login_attempt"] == 1
         assert summary["event_counts"]["file_access"] == 2
-
+    finally:
+        delete_replay("test-summary-val")

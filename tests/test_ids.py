@@ -1,11 +1,10 @@
 import unittest
-from backend.ids import score_packet, generate_alert
+
+from backend.ids import generate_alert, score_packet
 
 
 class TestIDS(unittest.TestCase):
-
     def test_score_packet(self):
-        # Test with a benign packet
         benign_packet = {
             "source_ip": "192.168.1.50",
             "destination_ip": "10.0.0.1",
@@ -15,7 +14,6 @@ class TestIDS(unittest.TestCase):
         score = score_packet(benign_packet)
         self.assertEqual(score, 0)
 
-        # Test with a suspicious packet
         suspicious_packet = {
             "source_ip": "192.168.1.50",
             "destination_ip": "10.0.0.1",
@@ -25,7 +23,6 @@ class TestIDS(unittest.TestCase):
         score = score_packet(suspicious_packet)
         self.assertGreater(score, 0)
 
-        # Test with a malicious packet
         malicious_packet = {
             "source_ip": "192.168.1.50",
             "destination_ip": "10.0.0.1",
@@ -36,7 +33,6 @@ class TestIDS(unittest.TestCase):
         self.assertGreater(score, 0)
 
     def test_generate_alert(self):
-        # Test alert generation for a high score
         packet = {
             "source_ip": "192.168.1.50",
             "destination_ip": "10.0.0.1",

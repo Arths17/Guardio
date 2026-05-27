@@ -34,7 +34,10 @@ def test_defense_model_validation():
 
 
 def test_simulation_result_model_validation():
-    """Validates the SimulationResult Pydantic schema constraints and attributes."""
+    """Validates the SimulationResult Pydantic schema constraints.
+
+    Also checks the generated attributes.
+    """
     simulation_result = SimulationResult(
         attack_id="attack1",
         defense_id="defense1",
@@ -44,4 +47,6 @@ def test_simulation_result_model_validation():
     assert simulation_result.attack_id == "attack1"
     assert simulation_result.defense_id == "defense1"
     assert simulation_result.success is True
-    assert simulation_result.details == "The defense successfully mitigated the attack."
+    assert simulation_result.details == (
+        "The defense successfully mitigated the attack."
+    )
