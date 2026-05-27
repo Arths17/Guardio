@@ -1,0 +1,17 @@
+[run]
+branch = True
+source = backend
+omit =
+    backend/AI/gemini.py
+    backend/models.py
+    backend/telemetry/store.py
+    tests/*
+
+[report]
+show_missing = True
+skip_covered = True
+precision = 2
+fail_under = 80
+
+[html]
+directory = htmlcov

@@ -1,14 +1,15 @@
 import sys
 import os
 import json
-import pytest
-from fastapi.testclient import TestClient
+import pytest  # type: ignore[import-not-found]
+from fastapi.testclient import TestClient  # type: ignore[import-not-found]
 
 # ensure project root is on path for imports
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from backend.main import app  # noqa: E402
-from backend.telemetry.telemetry_helper import (  # noqa: E402
+from backend.AI import gemini as gemini_helper  # noqa: E402
+from backend.telemetry import (  # noqa: E402, type: ignore[import-untyped]
     EVENT_STORE,
     get_events,
     store_event,
@@ -47,6 +48,14 @@ def test_telemetry_events_basic():
     assert isinstance(r.json(), list)
 
 
+def test_gemini_stub_generation(monkeypatch):
+    monkeypatch.setenv("GUARDIO_DISABLE_AI", "true")
+
+    result = gemini_helper.generate_text("hello world")
+
+    assert result.startswith("[ai-stub] hello world")
+
+
 # -------------------------
 # Test: sample event replay correctness
 # -------------------------
@@ -75,7 +84,7 @@ def test_telemetry_events_schema_and_data():
 # Test: middleware generates telemetry
 # -------------------------
 def test_telemetry_is_recorded_from_requests():
-    r = client.get("/health")
+    r = client.get("/live")
     assert r.status_code == 200
 
     events = client.get("/telemetry/events").json()
@@ -83,7 +92,7 @@ def test_telemetry_is_recorded_from_requests():
     assert len(events) >= 1
 
     event = events[-1]
-    assert event["path"] == "/health"
+    assert event["path"] == "/live"
     assert event["method"] == "GET"
 
 

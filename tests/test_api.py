@@ -1,14 +1,19 @@
 import sys
 import os
-import pytest
-from fastapi.testclient import TestClient
+import time
+import pytest  # type: ignore[import-not-found]
+from fastapi.testclient import TestClient  # type: ignore[import-not-found]
 
 # ensure project root is on path for imports
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from backend.main import app  # noqa: E402
-from backend.defense import defense  # noqa: E402
-from backend.telemetry.telemetry import telemetry  # noqa: E402
+from backend.defense import defense  # noqa: E402, type: ignore[import-untyped]
+from backend.replay import replays  # noqa: E402, type: ignore[import-untyped]
+from backend.simulation import sim  # noqa: E402, type: ignore[import-untyped]
+from backend.telemetry import (  # noqa: E402, type: ignore[import-untyped]
+    telemetry,
+)
 
 client = TestClient(app)
 
@@ -21,16 +26,30 @@ def reset_state():
     import asyncio
 
     asyncio.run(defense.reset())
+    replays.store.clear()
+    sim.running = False
+    sim.active_attack = None
+    sim._events = []
+    sim._compromised_hosts.clear()
+    sim._task = None
     yield
     os.environ.pop("GUARDIO_DISABLE_AI", None)
 
 
-def test_health():
-    r = client.get("/health")
+def test_liveness_and_readiness():
+    r = client.get("/live")
     assert r.status_code == 200
 
     data = r.json()
     assert data.get("status") == "ok"
+
+    ready = client.get("/ready")
+    assert ready.status_code == 200
+
+    body = ready.json()
+    assert body.get("status") == "ready"
+    assert body["database"]["connected"] is True
+    assert body["database"]["migration_count"] >= 1
 
 
 def test_status_and_metrics():
@@ -43,6 +62,38 @@ def test_status_and_metrics():
     metrics = client.get("/metrics")
     assert metrics.status_code == 200
     assert "counts" in metrics.json()
+
+
+def test_replay_lifecycle():
+    headers = {"X-API-Key": "devkey"}
+
+    started = client.post("/start", headers=headers)
+    assert started.status_code == 200
+
+    attack = client.post(
+        "/attack", json={"name": "ddos"}, headers=headers
+    )
+    assert attack.status_code == 200
+
+    time.sleep(0.2)
+
+    stopped = client.post("/stop", headers=headers)
+    assert stopped.status_code == 200
+
+    rid = stopped.json()["replay_id"]
+
+    replays_response = client.get("/replays")
+    assert replays_response.status_code == 200
+    assert any(
+        item["id"] == rid
+        for item in replays_response.json()["replays"]
+    )
+
+    replay = client.get(f"/replay/{rid}")
+    assert replay.status_code == 200
+    events = replay.json()["events"]
+    assert isinstance(events, list)
+    assert len(events) >= 1
 
 
 def test_defense_block_and_status():

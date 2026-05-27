@@ -1,15 +1,4 @@
-from datetime import datetime, timezone
-import json
-from typing import Any
+from ._bridge import load_source
 
-
-def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def utc_now_iso() -> str:
-    return utc_now().isoformat().replace("+00:00", "Z")
-
-
-def json_dumps(value: Any) -> str:
-    return json.dumps(value, separators=(",", ":"), sort_keys=True)
+_module = load_source(__name__, "utils.py")
+globals().update(_module.__dict__)
