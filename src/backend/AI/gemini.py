@@ -4,6 +4,18 @@ import time
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from dotenv import load_dotenv
+from ..telemetry.telemetry import telemetry as _telemetry
+
+try:
+    from prometheus_client import Counter as _Counter
+
+    _ai_calls_counter = _Counter("guardio_ai_calls_total", "Total AI calls")
+    _ai_failures_counter = _Counter("guardio_ai_failures_total", "Total AI failures")
+    _ai_circuit_counter = _Counter("guardio_ai_circuit_open_total", "AI circuit openings")
+except Exception:
+    _ai_calls_counter = None
+    _ai_failures_counter = None
+    _ai_circuit_counter = None
 
 
 ROOT_ENV = Path(__file__).resolve().parents[2] / ".env"
@@ -71,6 +83,9 @@ def generate_text(
         attempt += 1
         try:
             with ThreadPoolExecutor(max_workers=1) as ex:
+                if _ai_calls_counter is not None:
+                    _ai_calls_counter.inc()
+                _telemetry.increment("ai_calls")
                 future = ex.submit(_call_genai, api_key, prompt, system_instruction)
                 return future.result(timeout=timeout)
         except Exception as exc:
@@ -83,7 +98,12 @@ def generate_text(
     if _CIRCUIT["failures"] >= circuit_failures:
         _CIRCUIT["open_until"] = time.monotonic() + circuit_cooldown
         logger.error("Gemini circuit opened for %.1fs", circuit_cooldown)
-
+        if _ai_circuit_counter is not None:
+            _ai_circuit_counter.inc()
+        _telemetry.increment("ai_circuit_open")
+    if _ai_failures_counter is not None:
+        _ai_failures_counter.inc()
+    _telemetry.increment("ai_failures")
     return f"[ai-error] {last_exc}"
 
 
