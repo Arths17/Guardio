@@ -1,8 +1,10 @@
+from __future__ import annotations
+
 import json
 import sqlite3
 import threading
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from . import replay as replay_module
 from .utils import json_dumps, utc_now_iso
@@ -12,15 +14,15 @@ MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "migrations"
 
 
 class DB:
-    def __init__(self, path: str = DB_PATH):
-        self.path = path
-        self._init_lock = threading.Lock()
+    def __init__(self, path: str = DB_PATH) -> None:
+        self.path: str = path
+        self._init_lock: threading.Lock = threading.Lock()
         self._ensure()
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.path)
 
-    def _ensure(self):
+    def _ensure(self) -> None:
         with self._init_lock:
             conn = self._connect()
             cur = conn.cursor()
@@ -36,7 +38,7 @@ class DB:
             conn.close()
             self._apply_migrations()
 
-    def _apply_migrations(self):
+    def _apply_migrations(self) -> None:
         if not MIGRATIONS_DIR.exists():
             return
 
@@ -83,7 +85,7 @@ class DB:
             "migration_count": len(migrations),
         }
 
-    def save_replay(self, rid: str, events: List[Dict[str, Any]]):
+    def save_replay(self, rid: str, events: List[Dict[str, Any]]) -> None:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute(
@@ -133,7 +135,7 @@ class DB:
         conn.close()
         return [json.loads(row[0]) for row in rows]
 
-    def purge_replay(self, rid: str):
+    def purge_replay(self, rid: str) -> None:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM events WHERE replay_id = ?", (rid,))
@@ -142,24 +144,24 @@ class DB:
         conn.close()
 
 
-db = DB()
+db: DB = DB()
 
 
-def save_replay(replay_data: Dict[str, Any]):
+def save_replay(replay_data: Dict[str, Any]) -> Dict[str, Any]:
     return replay_module.save_replay(replay_data)
 
 
-def list_replays():
+def list_replays() -> List[Dict[str, Any]]:
     return replay_module.list_replays()
 
 
-def get_replay(rid: str):
+def get_replay(rid: str) -> Optional[Dict[str, Any]]:
     return replay_module.get_replay(rid)
 
 
-def delete_replay(rid: str):
+def delete_replay(rid: str) -> None:
     return replay_module.delete_replay(rid)
 
 
-def get_replay_summary(rid: str):
+def get_replay_summary(rid: str) -> Optional[Dict[str, Any]]:
     return replay_module.get_replay_summary(rid)

@@ -2,6 +2,8 @@
 
 <!-- cspell:ignore Guardio guardio devkey GUARDIO venv uvicorn wscat Cytoscape pytest -->
 
+[![CI](https://github.com/Arths17/Guardio/actions/workflows/ci.yml/badge.svg)](https://github.com/Arths17/Guardio/actions/workflows/ci.yml)
+
 This repository provides the backend for Guardio: a FastAPI-based, real-time
 simulation and WebSocket service that emits network/attack events for a
 visualization frontend. The backend is a self-contained prototype intended for

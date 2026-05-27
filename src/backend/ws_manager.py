@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 import asyncio
-from typing import List
+from typing import Dict, List, Any
 
 from fastapi import WebSocket
 
@@ -7,11 +9,11 @@ from .telemetry.telemetry import telemetry
 
 
 class WebSocketManager:
-    def __init__(self):
+    def __init__(self) -> None:
         self.active: List[WebSocket] = []
         self.lock = asyncio.Lock()
 
-    async def connect(self, websocket: WebSocket):
+    async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
         async with self.lock:
             self.active.append(websocket)
@@ -20,7 +22,7 @@ class WebSocketManager:
             from .defense import defense
             from .simulation import sim
 
-            state = {
+            state: Dict[str, Any] = {
                 "type": "state",
                 "simulation": sim.snapshot(),
                 "defense": await defense.get_snapshot(),
@@ -30,13 +32,13 @@ class WebSocketManager:
         except Exception:
             return
 
-    async def disconnect(self, websocket: WebSocket):
+    async def disconnect(self, websocket: WebSocket) -> None:
         async with self.lock:
             if websocket in self.active:
                 self.active.remove(websocket)
         telemetry.increment("websocket_disconnects")
 
-    async def broadcast_json(self, message):
+    async def broadcast_json(self, message: Dict[str, Any]) -> None:
         async with self.lock:
             websockets = list(self.active)
         telemetry.record_event(message)

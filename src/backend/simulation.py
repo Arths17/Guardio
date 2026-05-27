@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import asyncio
 import random
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 
 from .db import db
@@ -17,8 +19,8 @@ class Simulation:
         self._task: Optional[asyncio.Task] = None
         self.running: bool = False
         self.active_attack: Optional[str] = None
-        self._events: List[dict] = []
-        self._compromised_hosts: set[str] = set()
+        self._events: List[Dict[str, Any]] = []
+        self._compromised_hosts: Set[str] = set()
         self._attack_lock = asyncio.Lock()
         self.topology: Dict[str, List[str]] = {
             "clients": [f"host-{i}" for i in range(1, 81)],
@@ -41,7 +43,7 @@ class Simulation:
         normal: bool = True,
         src: Optional[str] = None,
         dst: Optional[str] = None,
-    ) -> dict:
+    ) -> Dict[str, Any]:
         packet = {
             "type": "packet",
             "src": src or self._pick("clients"),
@@ -55,12 +57,12 @@ class Simulation:
         }
         return packet
 
-    async def _record_event(self, event: dict) -> None:
+    async def _record_event(self, event: Dict[str, Any]) -> None:
         await manager.broadcast_json(event)
         self._events.append(event)
         telemetry.increment("simulation_events")
 
-    async def _emit_packet(self, packet: dict) -> None:
+    async def _emit_packet(self, packet: Dict[str, Any]) -> None:
         if await defense.is_blocked(packet["src"]) or await defense.is_blocked(
             packet["dst"]
         ):

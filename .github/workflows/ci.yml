@@ -74,3 +74,27 @@ jobs:
           path: |
             coverage.xml
             htmlcov/
+
+  smoke:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start Docker Compose
+        run: |
+          docker compose up -d --build
+      - name: Wait for Guardio metrics endpoint
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sS http://localhost:8000/metrics/prometheus >/dev/null 2>&1; then echo "metrics up"; exit 0; fi
+            sleep 1
+          done
+          echo "metrics endpoint did not start"; exit 1
+      - name: Check Prometheus targets
+        run: |
+          curl -sS http://localhost:9090/-/healthy || true
+          curl -sS http://localhost:9090/api/v1/targets || true
+      - name: Tear down compose
+        if: always()
+        run: |
+          docker compose down
