@@ -1,4 +1,5 @@
-from ._bridge import load_source
+from .main import app as app
+from .defense import defense
+from .telemetry import telemetry
 
-_module = load_source(__name__, "__init__.py")
-globals().update(_module.__dict__)
+__all__ = ["app", "defense", "telemetry"]

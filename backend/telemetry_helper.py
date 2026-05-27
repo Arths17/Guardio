@@ -1,4 +1,4 @@
-from src.backend.telemetry.telemetry_helper import (  # type: ignore[import-not-found]
+from src.backend.telemetry.telemetry_helper import (
     EVENT_STORE,
     TelemetryMiddleware,
     get_events,
