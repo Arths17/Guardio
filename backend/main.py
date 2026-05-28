@@ -1,4 +1,5 @@
 from asyncio import create_task
+from pathlib import Path
 from datetime import datetime, timezone
 from fastapi import (
     Depends,
@@ -8,6 +9,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from fastapi import UploadFile, File, Form
 from fastapi.responses import JSONResponse
 import logging
 import uuid
@@ -22,6 +24,22 @@ from backend.simulation import sim
 from backend.telemetry import telemetry
 from backend.telemetry_helper import TelemetryMiddleware, get_events
 from backend.ws_manager import manager
+from backend.ai_model import (
+    predict_from_features,
+    predict_from_url_heuristic,
+    list_models as ai_list_models,
+    select_model as ai_select_model,
+    current_model as ai_current_model,
+)
+import zipfile
+import io
+import shutil
+import base64
+try:
+    import multipart  # type: ignore
+    _MULTIPART_AVAILABLE = True
+except Exception:
+    _MULTIPART_AVAILABLE = False
 from .logging_config import configure_logging
 from .env import validate_env
 
@@ -312,6 +330,134 @@ async def websocket_endpoint(
 @app.get("/telemetry/events")
 def telemetry_events():
     return get_events()
+
+
+@app.post("/ai/phishing/score")
+def phishing_score(payload: dict, x_api_key: str = Depends(require_auth)):
+    from backend.models import PhishingScoreRequest, PhishingScoreResponse
+
+    req = PhishingScoreRequest(**payload)
+
+    if req.url and not req.features:
+        pred, prob, missing, extra = predict_from_url_heuristic(req.url)
+        src = "url_heuristic"
+    else:
+        pred, prob, missing, extra = predict_from_features(req.features)
+        src = "feature_vector"
+
+    resp = PhishingScoreResponse(
+        prediction=pred,
+        probability=prob,
+        threshold=req.threshold,
+        model_name="phishing_kaggle_xgb",
+        source=src,
+        missing_features=missing,
+        extra_features=extra,
+    )
+    return resp.dict()
+
+
+@app.get("/ai/phishing/models")
+def ai_models():
+    names = ai_list_models()
+    cur = ai_current_model()
+    return {"models": names, "current": cur}
+
+
+@app.post("/ai/phishing/models/select")
+def ai_models_select(payload: dict, x_api_key: str = Depends(require_auth)):
+    name = payload.get("model")
+    if not name:
+        return JSONResponse({"error": "missing model name"}, status_code=400)
+    try:
+        ai_select_model(name)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    return {"selected": name}
+
+
+@app.post("/ai/phishing/models/upload")
+def ai_models_upload(payload: dict, x_api_key: str = Depends(require_auth)):
+    """Upload a zipped model artifact as base64 in JSON: {"model_name":..., "zip_base64":...}"""
+    model_name = payload.get("model_name")
+    b64 = payload.get("zip_base64")
+    if not model_name or not b64:
+        return JSONResponse({"error": "missing model_name or zip_base64"}, status_code=400)
+    target = Path("models") / model_name
+    if target.exists():
+        return JSONResponse({"error": "model already exists"}, status_code=400)
+    target.mkdir(parents=True, exist_ok=False)
+    try:
+        data = base64.b64decode(b64)
+        zf = zipfile.ZipFile(io.BytesIO(data))
+        zf.extractall(path=target)
+    except Exception:
+        shutil.rmtree(target)
+        return JSONResponse({"error": "uploaded data is not a valid base64 zip"}, status_code=400)
+    return {"uploaded": model_name}
+
+
+if _MULTIPART_AVAILABLE:
+    @app.post("/ai/phishing/models/upload-file")
+    def ai_models_upload_file(model_name: str = Form(...), file: UploadFile = File(...), x_api_key: str = Depends(require_auth)):
+        """Multipart/form-data upload (requires python-multipart)."""
+        target = Path("models") / model_name
+        if target.exists():
+            return JSONResponse({"error": "model already exists"}, status_code=400)
+        target.mkdir(parents=True, exist_ok=False)
+        data = file.file.read()
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(data))
+            zf.extractall(path=target)
+        except zipfile.BadZipFile:
+            shutil.rmtree(target)
+            return JSONResponse({"error": "uploaded file is not a valid zip"}, status_code=400)
+        return {"uploaded": model_name}
+else:
+    @app.post("/ai/phishing/models/upload-file")
+    def ai_models_upload_file_unavailable(x_api_key: str = Depends(require_auth)):
+        return JSONResponse({"error": "python-multipart not installed; install python-multipart to enable file uploads"}, status_code=501)
+
+
+@app.get("/ai/phishing/models/{name}")
+def ai_models_metadata(name: str):
+    """Return schema and file list for a model directory."""
+    base = Path("models") / name
+    if not base.exists():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    files = [p.name for p in base.iterdir() if p.is_file()]
+    schema = None
+    if (base / "schema.json").exists():
+        try:
+            schema = json.loads((base / "schema.json").read_text(encoding="utf-8"))
+        except Exception:
+            schema = None
+    return {"model": name, "files": files, "schema": schema}
+
+
+@app.get("/ai/phishing/features")
+def ai_phishing_features(url: str):
+    """Return the extracted feature vector for a URL (no network fetch by default)."""
+    from backend.ai_model import _MANAGER
+
+    try:
+        feats = _MANAGER.extract_features_from_url(url, fetch_page=False)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return {"url": url, "features": feats}
+
+
+@app.delete("/ai/phishing/models/{name}")
+def ai_models_delete(name: str, x_api_key: str = Depends(require_auth)):
+    base = Path("models") / name
+    if not base.exists():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    # remove directory
+    try:
+        shutil.rmtree(base)
+    except Exception as exc:
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    return {"deleted": name}
 
 
 FastAPIInstrumentor.instrument_app(app)

@@ -4,123 +4,106 @@
 
 [![CI](https://github.com/Arths17/Guardio/actions/workflows/ci.yml/badge.svg)](https://github.com/Arths17/Guardio/actions/workflows/ci.yml)
 
-This repository provides the backend for Guardio: a FastAPI-based, real-time
-simulation and WebSocket service that emits network/attack events for a
-visualization frontend. The backend is a self-contained prototype intended for
-development, demos and education — it simulates network traffic and attacks,
-supports basic defenses and detection, and persists replays to a local
-SQLite database.
+Guardio is a FastAPI-based prototype backend that simulates network traffic,
+attacks and IDS/defense behavior for demos, education and local experimentation.
+It provides a WebSocket event stream for a visualization frontend, REST
+controls to operate the simulator, and an experimental ML model integration
+for tabular cyber-classification workloads.
 
-Key components
+**Quick Links**
+- **API entrypoint:** [backend/main.py](backend/main.py)
+- **Simulator:** [backend/simulation.py](backend/simulation.py)
+- **Model training:** [model/train_cyber.py](model/train_cyber.py)
+- **Tests:** [tests/](tests/)
 
-- `backend/main.py`: API and WebSocket entrypoints.
-- `backend/simulation.py`: synthetic network + attack simulator (packet events,
-- DDoS and malware scenarios).
-- `backend/ws_manager.py`: WebSocket broadcasting for live clients.
-- `backend/replay.py`: in-memory replay store (also persisted to SQLite).
-- `backend/defense.py`: simple defense manager (firewall blocks, segments,
-- honeypots).
-- `backend/ids.py`: lightweight IDS scoring and alert generation.
-- `backend/db.py`: SQLite persistence for replays and events (guardio.db).
-- `backend/auth.py`: minimal API-key auth dependency (header `X-API-Key`).
+**Local Quickstart**
 
-What this backend provides
-
-- Live event stream over WebSocket (`/ws`) with events such as `packet`,
-- `attack`, `alert`, and `dropped`.
-- REST control endpoints to start/stop the simulator and launch attacks.
-- Simple defensive controls (block/unblock hosts) that affect simulation
-- behavior in real time.
-- Network segmentation and honeypot controls for containment-style demos.
-- IDS alerts emitted when packets exceed a suspicion threshold.
-- Replay saving (in-memory and optional persisted to `guardio.db`).
-- Runtime status and metrics endpoints for live monitoring.
-
-Secure endpoints
-
-Most control endpoints require a header `X-API-Key`. The default development
-key is `devkey`. Override with the `GUARDIO_API_KEY` environment variable in
-production.
-
-Important endpoints
-
-- `GET /health` — health check.
-- `GET /status` — simulation and defense snapshot.
-- `GET /metrics` — telemetry and runtime counters.
-- `POST /start` — start simulation (requires `X-API-Key`).
-- `POST /stop` — stop simulation and save replay (requires `X-API-Key`).
-- `POST /attack` — launch an attack, JSON body `{ "name": "ddos" }`
-- (requires `X-API-Key`).
-- `POST /defense/firewall/block` — block host, JSON `{ "host": "host-1" }`
-- (requires `X-API-Key`).
-- `POST /defense/firewall/unblock` — unblock host (requires `X-API-Key`).
-- `POST /defense/segment` — create a segment, JSON `{ "name": "prod", "hosts": ["srv-1"] }`.
-- `DELETE /defense/segment/{name}` — remove a segment.
-- `POST /defense/honeypot` — add a honeypot host.
-- `DELETE /defense/honeypot` — remove a honeypot host.
-- `GET /defense/status` — view active blocks, segments and honeypots.
-- `GET /replays` and `GET /replay/{id}` — list and fetch saved replays.
-- `WebSocket /ws?api_key=devkey` — connect to receive live events (packets, alerts, state).
-
-Quick start (local)
-
-1. Create and activate a virtual environment and install dependencies:
+- Create and activate a Python 3.11 virtual environment (recommended for
+  PyTorch compatibility):
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+python3.11 -m venv .venv-py311
+source .venv-py311/bin/activate
 pip install -r requirements.txt
 ```
 
-1. Start the server (development):
+- Run the server (development):
 
 ```bash
 uvicorn backend.main:app --reload --port 8000
 ```
 
-1. Example requests (use header `X-API-Key: devkey`):
+- Example control requests (use header `X-API-Key: devkey`):
 
 ```bash
 # start simulation
 curl -X POST -H "X-API-Key: devkey" http://127.0.0.1:8000/start
 
 # block a host
-curl -X POST -H "Content-Type: application/json" -H "X-API-Key: devkey" -d '{"host":"host-1"}' http://127.0.0.1:8000/defense/firewall/block
+curl -X POST -H "Content-Type: application/json" -H "X-API-Key: devkey" \
+  -d '{"host":"host-1"}' http://127.0.0.1:8000/defense/firewall/block
 
-# connect to websocket (example with wscat)
-wscat -c ws://127.0.0.1:8000/ws
+# connect to websocket (wscat example)
+wscat -c ws://127.0.0.1:8000/ws?api_key=devkey
 ```
 
-Docker
+**Train the tabular cyber model**
 
-Build and run the provided image:
+The repository includes a small PyTorch MLP trainer for tabular datasets at
+[model/train_cyber.py](model/train_cyber.py). Example usage:
 
 ```bash
-docker build -t guardio-backend .
-docker run -p 8000:8000 -e GUARDIO_API_KEY=yourkey guardio-backend
+# activate .venv-py311 first
+python model/train_cyber.py --data data/cyber.csv --epochs 10 --out models
 ```
 
-Testing and CI
+This writes the following artifacts to the `models/` directory:
+- `cyber_model.pt` — PyTorch model state_dict
+- `preprocessor.joblib` — preprocessing (imputer/scaler/encoders)
+- `label_encoder.joblib` — label encoder
+- `feature_schema.json` — feature schema used for preprocessing
 
-- Unit tests are under `tests/` and run with `pytest`.
-- A basic GitHub Actions workflow is included at
-  `.github/workflows/ci.yml` that installs deps and runs tests.
+**Model management & inference (API)**
 
-Notes & next steps
+The FastAPI app exposes endpoints to list, upload, select, and delete models
+under `/ai/phishing/models` and to score URLs/features at `/ai/phishing/score`.
+Uploads are accepted as a base64-encoded ZIP (use the upload endpoint or
+create a model directory manually under `models/`). See [backend/main.py](backend/main.py)
+and [backend/ai_model.py](backend/ai_model.py) for implementation details.
 
-- This backend is intentionally prototype-level: simulation is synthetic and
-  randomized (no packet capture). For production you may want to add:
-  persistent user accounts, stronger auth, async DB (SQLModel/SQLAlchemy),
-  richer IDS rulesets, telemetry/metrics, and integration with a frontend
-  visualization (Three.js / Cytoscape / WebGL).
+**Run tests**
 
-Files to inspect
+Run the test suite inside the `python3.11` venv:
 
-- [backend/main.py](backend/main.py)
-- [backend/simulation.py](backend/simulation.py)
-- [backend/defense.py](backend/defense.py)
-- [backend/ids.py](backend/ids.py)
-- [backend/db.py](backend/db.py)
-- [backend/replay.py](backend/replay.py)
-- [Dockerfile](Dockerfile)
-- [requirements.txt](requirements.txt)
+```bash
+source .venv-py311/bin/activate
+pytest -q
+```
+
+Current test status in this workspace: `37 passed, 3 warnings` (local run).
+
+**Compatibility notes**
+
+- PyTorch wheels are sensitive to Python and numpy versions — we recommend
+  using the supplied `.venv-py311` (Python 3.11) when working with `torch`.
+- On macOS, `xgboost` may require `libomp` from Homebrew (`brew install libomp`) and
+  setting `DYLD_LIBRARY_PATH` when running locally.
+- If you see warnings like "StandardScaler was fitted with feature names",
+  ensure you pass a `pandas.DataFrame` with the expected column names to the
+  scaler (the repo's code follows a schema-driven transform to avoid this).
+
+**Development tips**
+
+- Use `GUARDIO_API_KEY` to change the API key in non-development setups.
+- Inspect `models/` for trained artifacts and `data/` for sample datasets.
+- To add a model in CI scripts, create `models/<name>/` with the expected
+  artifacts (`preprocessor.joblib`, `label_encoder.joblib`, `feature_schema.json`, and a model file) and call the upload/select endpoints.
+
+**Contributing & next steps**
+
+- Improve feature extraction for URL-based models (WHOIS, page content,
+  favicon checks), add persistent model-selection state, and expand CI to
+  cover GPU/CPU inference paths if needed.
+
+If you'd like, I can also add a short `docs/README_MODEL.md` with sample
+inference scripts and a small packaging helper to produce uploadable zip files.

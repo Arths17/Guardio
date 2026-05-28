@@ -74,3 +74,19 @@ class ReplaySummary(BaseModel):
 class MetricSnapshot(BaseModel):
     counts: Dict[str, int]
     last_event: Dict[str, Any] | None = None
+
+
+class PhishingScoreRequest(BaseModel):
+    url: str | None = None
+    features: Dict[str, float] = Field(default_factory=dict)
+    threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+class PhishingScoreResponse(BaseModel):
+    prediction: int
+    probability: float
+    threshold: float
+    model_name: str
+    source: Literal["url_heuristic", "feature_vector"]
+    missing_features: List[str] = Field(default_factory=list)
+    extra_features: List[str] = Field(default_factory=list)
