@@ -246,7 +246,7 @@ export default function InfraGraph() {
   const nodeMap: Record<string, GraphNode> = {};
   for (const n of graphNodes) nodeMap[n.id] = n;
 
-  const zones = Array.from(new Set(graphNodes.map((n) => n.zone)));
+  const zones = Array.from(new Set(graphNodes.map((n) => n.zone))).filter(Boolean) as string[];
 
   return (
     <div className="flex h-full overflow-hidden">

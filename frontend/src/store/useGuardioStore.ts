@@ -124,12 +124,12 @@ export const useGuardioStore = create<GuardioState>((set) => ({
   setTopology: (nodes) => set({ nodes }),
 
   updateNode: (id, update) =>
-    set((s) => ({
-      nodes: {
-        ...s.nodes,
-        [id]: s.nodes[id] ? { ...s.nodes[id], ...update } : (update as NodeData),
-      },
-    })),
+    set((s) => {
+      if (!s.nodes[id]) return s; // ignore updates for unknown nodes
+      return {
+        nodes: { ...s.nodes, [id]: { ...s.nodes[id], ...update } },
+      };
+    }),
 
   setThreatLevel: (level, status) => set({ threatLevel: level, threatStatus: status }),
 

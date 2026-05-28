@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import {
   ComposableMap,
   Geographies,
@@ -161,7 +161,10 @@ export default function ThreatMap() {
   );
 
   const { width, height } = mapDims;
-  const mapNodes = Object.values(nodes);
+  const mapNodes = useMemo(
+    () => Object.values(nodes).filter((n) => Boolean(n.id)),
+    [nodes]
+  );
 
   return (
     <div className="flex h-full overflow-hidden">
