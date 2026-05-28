@@ -19,7 +19,7 @@ def test_simulation_start_and_stop():
 
     stop_response = client.post("/simulation/stop", headers=headers)
     assert stop_response.status_code == 200
-    assert stop_response.json() == {"status": "simulation stopped"}
+    assert stop_response.json()["status"] == "simulation stopped"
 
     final_status_response = client.get("/simulation/status")
     assert final_status_response.status_code == 200

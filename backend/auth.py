@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hmac
 import logging
 import os
@@ -8,7 +10,7 @@ from fastapi import Depends, Header, HTTPException, Query, status
 _logger = logging.getLogger("backend.auth")
 
 
-def _constant_time_match(a: Optional[str], b: Optional[str]) -> bool:
+def _match(a: Optional[str], b: Optional[str]) -> bool:
     if a is None or b is None:
         return False
     try:
@@ -23,25 +25,28 @@ def get_api_key(
 ) -> str:
     """Validate API key with constant-time comparison.
 
-    By default the header `X-API-Key` is required. Query-string keys are
-    only allowed when GUARDIO_ALLOW_QUERY_API_KEY=1 to avoid accidental leaks.
+    Header ``X-API-Key`` is the primary channel. Query-string keys are
+    only accepted when ``GUARDIO_ALLOW_QUERY_API_KEY=1``.
     """
     expected = os.environ.get("GUARDIO_API_KEY", "devkey")
-    allowed = {expected, "test-key-123"}
 
-    provided = x_api_key or api_key
-    # Enforce header-only by default
     allow_query = os.environ.get("GUARDIO_ALLOW_QUERY_API_KEY", "0") == "1"
     if api_key and not allow_query:
-        _logger.warning("API key provided in query string but not allowed")
+        _logger.warning("API key in query string rejected (not allowed)")
 
-    # Check against allowed keys using constant-time compare
+    provided = x_api_key or (api_key if allow_query else None)
+
+    # Additional keys allowed via comma-separated env var (for CI/tests)
+    extra_raw = os.environ.get("GUARDIO_EXTRA_API_KEYS", "")
+    allowed = {expected} | {k for k in extra_raw.split(",") if k}
+
     for candidate in allowed:
-        if _constant_time_match(provided, candidate):
-            return provided or candidate
+        if _match(provided, candidate):
+            return provided  # type: ignore[return-value]
 
     raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid api key"
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="invalid api key",
     )
 
 

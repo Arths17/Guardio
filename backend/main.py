@@ -1,23 +1,21 @@
-from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from __future__ import annotations
+
+import asyncio
 import logging
 import os
 import uuid
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import (
-    Depends,
-    FastAPI,
-    HTTPException,
-    Response,
-    WebSocket,
-    WebSocketDisconnect,
+    Depends, FastAPI, HTTPException, Response,
+    WebSocket, WebSocketDisconnect,
 )
 from fastapi.responses import JSONResponse
 
 from backend.lifecycle import create_task, task_registry
-
 from backend.AI import gemini as gemini_helper
-from backend.ai_client import suggest_defense_for_event
+from backend.ai_client import suggest_defense_for_event, summarize_replay
 from backend.auth import require_auth
 from backend.db import db
 from backend.defense import defense
@@ -25,6 +23,7 @@ from backend.replay import replays
 from backend.simulation import sim
 from backend.telemetry import telemetry
 from backend.telemetry_helper import TelemetryMiddleware, get_events
+from backend.topology import NODES
 from backend.ws_manager import manager
 from .logging_config import configure_logging
 from .env import validate_env
@@ -34,83 +33,68 @@ validate_env()
 
 try:
     from prometheus_client import (
-        CONTENT_TYPE_LATEST as _CONTENT_TYPE_LATEST,
-        generate_latest as _generate_latest,
+        CONTENT_TYPE_LATEST as _CT_LATEST,
+        generate_latest as _gen_latest,
     )
-except ModuleNotFoundError:  # pragma: no cover - optional dependency
-    _CONTENT_TYPE_LATEST = "text/plain; charset=utf-8"
+except ModuleNotFoundError:  # pragma: no cover
+    _CT_LATEST = "text/plain; charset=utf-8"
 
-    def _generate_latest_impl() -> bytes:
+    def _gen_latest() -> bytes:  # type: ignore[misc]
         return b""
-
-else:
-
-    def _generate_latest_impl() -> bytes:
-        return _generate_latest()
-
-
-CONTENT_TYPE_LATEST = _CONTENT_TYPE_LATEST
-
-
-def generate_latest() -> bytes:
-    return _generate_latest_impl()
 
 
 try:
     from opentelemetry.instrumentation.fastapi import (
-        FastAPIInstrumentor as _ImportedFastAPIInstrumentor,
+        FastAPIInstrumentor as _OTELInstrumentor,
     )
-except ModuleNotFoundError:  # pragma: no cover - optional dependency
+except ModuleNotFoundError:  # pragma: no cover
 
-    class _NoOpFastAPIInstrumentor:
+    class _OTELInstrumentor:  # type: ignore[no-redef]
         @staticmethod
-        def instrument_app(app):
+        def instrument_app(app) -> None:
             return None
 
-    _fastapi_instrumentor = _NoOpFastAPIInstrumentor()
-else:
-    _fastapi_instrumentor = _ImportedFastAPIInstrumentor()
-
-FastAPIInstrumentor = _fastapi_instrumentor
 
 logger = logging.getLogger("guardio")
+
+_WS_HEARTBEAT_INTERVAL = 30.0  # seconds between server-side pings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Initializing application backend components via lifespan...")
+    logger.info("Starting Guardio backend…")
     if hasattr(db, "initialize_async"):
         try:
             await db.initialize_async()
         except Exception:
-            logger.exception("Database initialization failed during startup")
+            logger.exception("DB init failed")
     yield
-    logger.info("Initiating graceful shutdown cycle via lifespan...")
+    logger.info("Shutting down Guardio backend…")
     try:
         await task_registry.flush_all_tasks_async()
     except Exception:
-        logger.exception("Error while flushing background tasks during shutdown")
+        logger.exception("Error flushing background tasks")
     if hasattr(db, "close_async"):
         try:
             await db.close_async()
         except Exception:
-            logger.exception("Error while closing database during shutdown")
-    logger.info("Lifespan context closed down safely.")
+            logger.exception("Error closing DB")
 
 
 app = FastAPI(title="Guardio Backend", lifespan=lifespan)
+
 try:
     from backend.ratelimit import RateLimitMiddleware
-
-    rate_limit = int(os.environ.get("GUARDIO_RATE_LIMIT_PER_MIN", "120"))
-    app.add_middleware(RateLimitMiddleware, limit_per_min=rate_limit)
+    _rate = int(os.environ.get("GUARDIO_RATE_LIMIT_PER_MIN", "120"))
+    app.add_middleware(RateLimitMiddleware, limit_per_min=_rate)
 except Exception:
     pass
+
 app.add_middleware(TelemetryMiddleware)
 
 
 @app.middleware("http")
-async def add_request_id(request, call_next):
+async def _request_id(request, call_next):
     rid = request.headers.get("X-Request-Id") or str(uuid.uuid4())
     request.state.request_id = rid
     response = await call_next(request)
@@ -119,42 +103,43 @@ async def add_request_id(request, call_next):
 
 
 @app.exception_handler(Exception)
-async def handle_unhandled_exception(request, exc: Exception):
-    logger = logging.getLogger("backend")
+async def _unhandled(request, exc: Exception):
     rid = getattr(request.state, "request_id", None)
-    logger.exception(
-        "Unhandled exception",
-        exc_info=exc,
-        extra={"request_id": rid},
+    logging.getLogger("backend").exception(
+        "Unhandled exception", exc_info=exc, extra={"request_id": rid}
     )
-    payload = {"error": "internal_server_error", "request_id": rid}
-    return JSONResponse(payload, status_code=500)
+    return JSONResponse(
+        {"error": "internal_server_error", "request_id": rid},
+        status_code=500,
+    )
 
 
-def _utc_timestamp() -> str:
+def _ts() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# ── health ──────────────────────────────────────────────────────────────────
+
 @app.get("/live")
 async def liveness():
-    return JSONResponse({"status": "ok", "ts": _utc_timestamp()})
+    return JSONResponse({"status": "ok", "ts": _ts()})
 
 
 @app.get("/ready")
 async def readiness():
-    return JSONResponse(
-        {
-            "status": "ready",
-            "ts": _utc_timestamp(),
-            "database": await db.readiness_snapshot_async(),
-        }
-    )
+    return JSONResponse({
+        "status": "ready",
+        "ts": _ts(),
+        "database": await db.readiness_snapshot_async(),
+    })
 
 
 @app.get("/health")
 async def health():
     return await liveness()
 
+
+# ── simulation ──────────────────────────────────────────────────────────────
 
 @app.post("/start")
 async def start_sim(x_api_key: str = Depends(require_auth)):
@@ -169,7 +154,9 @@ async def stop_sim(x_api_key: str = Depends(require_auth)):
 
 
 @app.post("/attack")
-async def launch_attack(payload: dict, x_api_key: str = Depends(require_auth)):
+async def launch_attack(
+    payload: dict, x_api_key: str = Depends(require_auth)
+):
     name = payload.get("name")
     if not name:
         return JSONResponse({"error": "missing attack name"}, status_code=400)
@@ -185,12 +172,14 @@ async def simulation_start(x_api_key: str = Depends(require_auth)):
 
 @app.post("/simulation/stop")
 async def simulation_stop(x_api_key: str = Depends(require_auth)):
-    await sim.stop()
-    return {"status": "simulation stopped"}
+    rid = await sim.stop()
+    return {"status": "simulation stopped", "replay_id": rid}
 
 
 @app.post("/simulation/attack")
-async def simulation_attack(payload: dict, x_api_key: str = Depends(require_auth)):
+async def simulation_attack(
+    payload: dict, x_api_key: str = Depends(require_auth)
+):
     name = payload.get("name")
     if not name:
         return JSONResponse({"error": "missing attack name"}, status_code=400)
@@ -201,11 +190,24 @@ async def simulation_attack(payload: dict, x_api_key: str = Depends(require_auth
 
 @app.get("/simulation/status")
 async def simulation_status():
-    return {"running": sim.running, "active_attack": sim.active_attack}
+    return sim.snapshot()
 
+
+@app.get("/topology")
+async def get_topology():
+    """Return full network topology with current node states."""
+    return {
+        "nodes": {nid: n.to_dict() for nid, n in NODES.items()},
+        "ts": _ts(),
+    }
+
+
+# ── defense ─────────────────────────────────────────────────────────────────
 
 @app.post("/defense/firewall/block")
-async def block_host(payload: dict, x_api_key: str = Depends(require_auth)):
+async def block_host(
+    payload: dict, x_api_key: str = Depends(require_auth)
+):
     host = payload.get("host")
     if not host:
         return JSONResponse({"error": "missing host"}, status_code=400)
@@ -214,7 +216,9 @@ async def block_host(payload: dict, x_api_key: str = Depends(require_auth)):
 
 
 @app.post("/defense/firewall/unblock")
-async def unblock_host(payload: dict, x_api_key: str = Depends(require_auth)):
+async def unblock_host(
+    payload: dict, x_api_key: str = Depends(require_auth)
+):
     host = payload.get("host")
     if not host:
         return JSONResponse({"error": "missing host"}, status_code=400)
@@ -223,23 +227,31 @@ async def unblock_host(payload: dict, x_api_key: str = Depends(require_auth)):
 
 
 @app.post("/defense/segment")
-async def create_segment(payload: dict, x_api_key: str = Depends(require_auth)):
+async def create_segment(
+    payload: dict, x_api_key: str = Depends(require_auth)
+):
     name = payload.get("name")
     hosts = payload.get("hosts") or []
     if not name:
-        return JSONResponse({"error": "missing segment name"}, status_code=400)
+        return JSONResponse(
+            {"error": "missing segment name"}, status_code=400
+        )
     await defense.create_segment(name, set(hosts))
     return {"segment": name, "hosts": hosts}
 
 
 @app.delete("/defense/segment/{name}")
-async def delete_segment(name: str, x_api_key: str = Depends(require_auth)):
+async def delete_segment(
+    name: str, x_api_key: str = Depends(require_auth)
+):
     await defense.remove_segment(name)
     return {"deleted": name}
 
 
 @app.post("/defense/honeypot")
-async def add_honeypot(payload: dict, x_api_key: str = Depends(require_auth)):
+async def add_honeypot(
+    payload: dict, x_api_key: str = Depends(require_auth)
+):
     host = payload.get("host")
     if not host:
         return JSONResponse({"error": "missing host"}, status_code=400)
@@ -248,7 +260,9 @@ async def add_honeypot(payload: dict, x_api_key: str = Depends(require_auth)):
 
 
 @app.delete("/defense/honeypot")
-async def remove_honeypot(payload: dict, x_api_key: str = Depends(require_auth)):
+async def remove_honeypot(
+    payload: dict, x_api_key: str = Depends(require_auth)
+):
     host = payload.get("host")
     if not host:
         return JSONResponse({"error": "missing host"}, status_code=400)
@@ -256,40 +270,42 @@ async def remove_honeypot(payload: dict, x_api_key: str = Depends(require_auth))
     return {"removed": host}
 
 
+@app.get("/defense/status")
+async def defense_status():
+    return await defense.get_snapshot()
+
+
+# ── status / metrics ────────────────────────────────────────────────────────
+
 @app.get("/status")
 async def status_snapshot():
     return {
         "simulation": sim.snapshot(),
         "defense": await defense.get_snapshot(),
         "clients": await manager.count(),
-        "active_attack": sim.active_attack,
     }
 
 
 @app.get("/metrics")
 async def metrics():
-    snapshot = telemetry.snapshot()
-    snapshot["websocket_clients"] = await manager.count()
-    snapshot["simulation"] = sim.snapshot()
-    return snapshot
+    snap = telemetry.snapshot()
+    snap["websocket_clients"] = await manager.count()
+    snap["simulation"] = sim.snapshot()
+    return snap
 
 
 @app.get("/metrics/prometheus")
 def prometheus_metrics():
-    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+    return Response(content=_gen_latest(), media_type=_CT_LATEST)
 
 
-@app.get("/defense/status")
-async def defense_status():
-    return await defense.get_snapshot()
-
+# ── replays ─────────────────────────────────────────────────────────────────
 
 @app.get("/replays")
 async def list_replays():
     try:
         items = await replays.list_async()
     except Exception:
-        # Fallback to synchronous call if async fails
         items = replays.list()
     return {"replays": items}
 
@@ -300,27 +316,33 @@ async def get_replay(rid: str):
         events = await replays.get_async(rid)
     except Exception:
         events = replays.get(rid)
-
     if events is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     return {"id": rid, "events": events}
 
 
+# ── AI ──────────────────────────────────────────────────────────────────────
+
 @app.post("/ai/summarize/{rid}")
 async def ai_summarize(rid: str, x_api_key: str = Depends(require_auth)):
     try:
-        from backend.ai_client import summarize_replay as summarize_async
-
-        summary = await summarize_async(rid)
+        summary = await summarize_replay(rid)
         return {"id": rid, "summary": summary}
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
 
 @app.post("/ai/suggest")
-async def ai_suggest(payload: dict, x_api_key: str = Depends(require_auth)):
+async def ai_suggest(
+    payload: dict, x_api_key: str = Depends(require_auth)
+):
+    """Return a defense suggestion for the given event (non-blocking)."""
     try:
-        return {"suggestion": suggest_defense_for_event(payload)}
+        loop = asyncio.get_running_loop()
+        suggestion = await loop.run_in_executor(
+            None, suggest_defense_for_event, payload
+        )
+        return {"suggestion": suggestion}
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
@@ -329,7 +351,11 @@ async def ai_suggest(payload: dict, x_api_key: str = Depends(require_auth)):
 async def ai_generate(payload: dict):
     prompt = payload.get("prompt", "")
     try:
-        return {"text": gemini_helper.generate_text(prompt)}
+        loop = asyncio.get_running_loop()
+        text = await loop.run_in_executor(
+            None, lambda: gemini_helper.generate_text(prompt)
+        )
+        return {"text": text}
     except Exception:
         raise HTTPException(
             status_code=503,
@@ -337,29 +363,44 @@ async def ai_generate(payload: dict):
         )
 
 
+# ── WebSocket ───────────────────────────────────────────────────────────────
+
 @app.websocket("/ws")
-async def websocket_endpoint(
-    websocket: WebSocket,
-    x_api_key: str = Depends(require_auth),
-):
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    Public WebSocket feed — no API key required so dashboards can connect
+    without exposing credentials.  Emit ``ping`` to receive a ``pong``.
+    """
     await manager.connect(websocket)
     try:
         while True:
-            data = await websocket.receive_text()
-            if data == "ping":
-                await websocket.send_json(
-                    {
-                        "type": "pong",
-                        "ts": datetime.now(timezone.utc).isoformat(),
-                    }
+            try:
+                data = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=_WS_HEARTBEAT_INTERVAL,
                 )
+            except asyncio.TimeoutError:
+                # Server-initiated keepalive
+                await websocket.send_json(
+                    {"type": "ping", "ts": _ts()}
+                )
+                continue
+
+            if data == "ping":
+                await websocket.send_json({"type": "pong", "ts": _ts()})
     except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
         await manager.disconnect(websocket)
 
+
+# ── telemetry ───────────────────────────────────────────────────────────────
 
 @app.get("/telemetry/events")
 def telemetry_events():
     return get_events()
 
 
-FastAPIInstrumentor.instrument_app(app)
+_OTELInstrumentor.instrument_app(app)

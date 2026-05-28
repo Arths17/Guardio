@@ -1,0 +1,144 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap");
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: #0B1020;
+  color: #E2E8F0;
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #1E2A3A;
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00C2FF33;
+}
+
+/* Mono numbers */
+.mono {
+  font-family: "JetBrains Mono", monospace;
+  font-feature-settings: "tnum";
+}
+
+/* Attack arc SVG animations */
+@keyframes arc-travel {
+  0% {
+    stroke-dashoffset: 1000;
+    opacity: 0.9;
+  }
+  70% {
+    opacity: 0.7;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    r: 4;
+    opacity: 0.8;
+  }
+  100% {
+    r: 14;
+    opacity: 0;
+  }
+}
+
+@keyframes node-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.arc-path {
+  stroke-dasharray: 1000;
+  animation: arc-travel 1.8s ease-out forwards;
+}
+
+.arc-path-fast {
+  stroke-dasharray: 1000;
+  animation: arc-travel 0.9s ease-out forwards;
+}
+
+.pulse-ring {
+  animation: pulse-ring 1.5s ease-out infinite;
+}
+
+.node-blink {
+  animation: node-blink 1s ease-in-out infinite;
+}
+
+/* Threat gauge glow */
+.threat-glow-low    { box-shadow: 0 0 12px 2px #7CFFB222; }
+.threat-glow-medium { box-shadow: 0 0 12px 2px #FFCC6633; }
+.threat-glow-high   { box-shadow: 0 0 16px 4px #FF950044; }
+.threat-glow-crit   { box-shadow: 0 0 20px 6px #FF6B6B55; }
+
+/* Scanline overlay for map */
+.scanlines::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Panel borders */
+.panel-border {
+  border: 1px solid #1E2A3A;
+}
+
+/* Severity indicators */
+.sev-critical { color: #FF6B6B; }
+.sev-high     { color: #FF9500; }
+.sev-medium   { color: #FFCC66; }
+.sev-low      { color: #7CFFB2; }
+
+/* Selection state */
+::selection {
+  background: #00C2FF22;
+  color: #E2E8F0;
+}
+
+/* Disable react-simple-maps default outline */
+.rsm-svg {
+  outline: none;
+}
+
+/* Force graph canvas wrapper */
+.force-graph-container canvas {
+  outline: none;
+}
