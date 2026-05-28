@@ -254,12 +254,13 @@ export default function ThreatMap() {
                     }}
                   >
                     {isActive && (
-                      <circle r={r + 6} fill="none" stroke={color} strokeWidth={1} opacity={0} className="pulse-ring" />
+                      <circle key="pulse" r={r + 6} fill="none" stroke={color} strokeWidth={1} opacity={0} className="pulse-ring" />
                     )}
                     {isSelected && (
-                      <circle r={r + 4} fill="none" stroke={color} strokeWidth={1.5} opacity={0.6} />
+                      <circle key="select" r={r + 4} fill="none" stroke={color} strokeWidth={1.5} opacity={0.6} />
                     )}
                     <circle
+                      key="main"
                       r={r}
                       fill={color}
                       fillOpacity={node.state === "offline" ? 0.3 : 0.9}

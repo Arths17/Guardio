@@ -353,12 +353,13 @@ export default function InfraGraph() {
                 }}
               >
                 {isActive && (
-                  <circle r={r + 8} fill={color} fillOpacity={0.08} className="pulse-ring" />
+                  <circle key="pulse" r={r + 8} fill={color} fillOpacity={0.08} className="pulse-ring" />
                 )}
                 {isSelected && (
-                  <circle r={r + 5} fill="none" stroke={color} strokeWidth={1.5} opacity={0.5} />
+                  <circle key="select" r={r + 5} fill="none" stroke={color} strokeWidth={1.5} opacity={0.5} />
                 )}
                 <circle
+                  key="main"
                   r={r}
                   fill={color}
                   fillOpacity={n.state === "offline" ? 0.2 : 0.85}
@@ -368,6 +369,7 @@ export default function InfraGraph() {
                   className={n.state === "encrypted" ? "node-blink" : undefined}
                 />
                 <text
+                  key="label"
                   y={r + 9}
                   textAnchor="middle"
                   fill="#94A3B8"

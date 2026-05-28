@@ -1,88 +1,127 @@
-# Guardio
+# Guardio — Cyber Defense Command
 
 <!-- cspell:ignore Guardio guardio devkey uvicorn wscat pytest venv GUARDIO -->
 
 [![CI](https://github.com/Arths17/Guardio/actions/workflows/ci.yml/badge.svg)](https://github.com/Arths17/Guardio/actions/workflows/ci.yml)
 
-Real-time cyberattack visualization and infrastructure defense platform. Stream live attack simulations across a world map, inspect 108 geo-tagged infrastructure nodes, and follow attack propagation through an interactive force graph — all in a dark, operational SOC-style interface.
+A real-time cyberattack visualization platform. Watch DDoS floods, ransomware outbreaks, and APT intrusions unfold live across a 108-node global network — streamed via WebSocket to an interactive world map, force-directed infrastructure graph, and incident timeline.
+
+Built for hackathons. Cinematic by design.
+
+---
+
+## What it looks like
+
+The app has five views, all driven by the same live WebSocket stream:
+
+| View | What you see |
+| --- | --- |
+| **Threat Map** | World map with animated attack arcs flying between nodes. Nodes glow red when compromised, pulse orange when stressed, flicker purple when encrypted. |
+| **Infra Graph** | Force-directed graph of all 108 nodes grouped by security zone (external → DMZ → internal → data → cloud → IoT). Edges turn red as nodes fall. |
+| **Timeline** | Chronological incident log — every attack phase, node state change, IDS alert, and defense action in one expandable stream. |
+| **Intelligence** | Protocol distribution charts, IDS detection table, attack summary, defense action log. |
+| **AI Copilot** | Chat interface backed by Gemini — ask about the current threat posture, get mitigation recommendations, analyze the latest alert. |
+
+---
+
+## How the simulation works
+
+The simulation is the core engine. Hit **START SIM** to boot it.
+
+### What happens on START SIM
+
+1. **108 nodes initialize** across 6 security zones with real geographic coordinates. Each node is assigned a type (server, database, cloud, client, IoT) and starts in a `healthy` state.
+2. **A background loop fires every 120ms**, generating network packets between nodes. These stream to the frontend as WebSocket events — you see them as arcs on the world map and as entries in the alert feed.
+3. **The IDS watches every packet**. Suspicious traffic (high rate, attack protocols, anomalous flags) scores above a threshold and fires an alert.
+
+### Launching an attack
+
+Click any of the attack buttons in the top bar while the simulation is running. Each attack is a scripted multi-phase sequence:
+
+| Attack | What happens |
+| --- | --- |
+| **DDoS** | Probe phase → 20 sources flood a single server with UDP packets → server goes offline → anycast scrubbing activates → recovery |
+| **Malware** | Patient-zero client gets infected → spreads via SMB/RDP to nearby servers → EDR quarantine kicks in |
+| **Ransomware** | Lateral movement phase → exfiltration → ransomware encrypts nodes one by one (purple glow) → ransom demand event → recovery |
+| **Phishing** | Spear-phishing campaign → credential theft → attacker replays stolen credentials → privilege escalation |
+| **Botnet** | C2 server recruits IoT devices → enrolled bots beacon back → coordinated DDoS against infrastructure |
+| **APT** | OSINT recon → zero-day exploitation → persistence installed → slow lateral movement → silent exfiltration |
+
+Each attack emits events the frontend reacts to: node states change, threat level climbs, IDS alerts fire, and automated defenses respond.
+
+### Node state machine
+
+```text
+healthy → probing → stressed → compromised → encrypted → recovering → healthy
+                                          ↓
+                                       offline
+```
+
+| State | Color | Trigger |
+| --- | --- | --- |
+| `healthy` | Green | Normal operation |
+| `probing` | Yellow | Reconnaissance packets detected |
+| `stressed` | Orange | High load or active flood |
+| `compromised` | Red | Host breached |
+| `encrypted` | Purple | Ransomware locked the node |
+| `recovering` | Cyan | Mitigation applied, restoring |
+| `isolated` | Gray | Segment-isolated by firewall |
+| `offline` | Dark | Service unavailable |
 
 ---
 
 ## Quick start
 
-No API keys required. The backend defaults to `devkey` and AI features degrade gracefully without a Gemini key.
+No API keys required. AI features degrade gracefully without a Gemini key.
 
-> **All `make` commands must be run from the project root** (`Guardio/`), not from `frontend/`.
+> **All `make` commands run from the project root** (`Guardio/`).
 
-### 1 — Install dependencies
+### 1 — Install
 
 ```bash
 cd Guardio
 make install
 ```
 
-Or without `make`:
+Or manually:
 
 ```bash
-cd Guardio
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cd frontend && npm install && cd ..
 ```
 
 ### 2 — Start the backend
 
-In terminal 1, from the project root:
-
 ```bash
 make dev-backend
+# or: source .venv/bin/activate && uvicorn backend.main:app --reload --port 8000
 ```
 
-Equivalent manual command:
-
-```bash
-source .venv/bin/activate
-uvicorn backend.main:app --reload --port 8000
-```
-
-Backend runs at `http://localhost:8000`. API docs at `http://localhost:8000/docs`.
+Backend: `http://localhost:8000` · API docs: `http://localhost:8000/docs`
 
 ### 3 — Start the frontend
 
-In terminal 2, from the project root:
-
 ```bash
 make dev-frontend
+# or: cd frontend && npm run dev
 ```
 
-Equivalent manual command:
+Frontend: `http://localhost:3000`
 
-```bash
-cd frontend && npm run dev
-```
-
-Frontend runs at `http://localhost:3000`.
-
-### 4 — Use it
+### 4 — Run it
 
 1. Open `http://localhost:3000`
-2. Click **START SIM** in the top bar — the world map fills with live packet arcs and node state changes
-3. Launch a named attack from the top bar: **DDOS**, **MALWARE**, **RANSOMWARE**, **PHISHING**, **BOTNET**, or **APT**
-4. Navigate views with the left icon rail:
-   - **Threat Map** — world map with animated attack arcs, node pulses, click any node for details
-   - **Infra Graph** — force-directed graph of all 108 nodes grouped by security zone
-   - **Timeline** — expandable incident log with forensic detail and MITRE ATT&CK phases
-   - **Intelligence** — protocol breakdown, IDS alert table, attack summary, defense action log
-   - **AI Copilot** — query the AI assistant about your current threat posture
+2. Click **START SIM** — the world map populates with nodes and packet arcs
+3. Hit any attack button in the top bar to launch a scenario
+4. Navigate between views with the left icon rail
+5. Click **STOP SIM** to end the session (events are saved as a replay)
 
 ---
 
 ## Configuration
 
-No configuration is required to run locally. The defaults work out of the box.
-
-Copy `.env.example` to `.env` if you want to override anything:
+Copy `.env.example` to `.env` to override defaults:
 
 ```bash
 cp .env.example .env
@@ -90,35 +129,27 @@ cp .env.example .env
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `GUARDIO_API_KEY` | `devkey` | API key for control endpoints. The frontend sends `devkey` automatically. |
-| `GUARDIO_DISABLE_AI` | `false` | Set to `true` to stub all AI responses without needing a Gemini key. |
-| `GEMINI_API_KEY` | *(none)* | Optional. Enables real AI suggestions in the Copilot panel. Without it, AI returns a stub message instead of erroring. |
+| `GUARDIO_API_KEY` | `devkey` | API key for control endpoints. Frontend sends this automatically. |
+| `GUARDIO_DISABLE_AI` | `false` | Set `true` to stub AI responses without a Gemini key. |
+| `GEMINI_API_KEY` | *(none)* | Enables real AI suggestions in the Copilot. Without it, AI returns a stub instead of erroring. |
 | `GUARDIO_RATE_LIMIT_PER_MIN` | `120` | HTTP rate limit per IP per minute. |
 
-**Frontend** (copy `frontend/.env.local.example` to `frontend/.env.local`):
+**Frontend** (`frontend/.env.local`):
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `NEXT_PUBLIC_WS_URL` | `ws://localhost:8000/ws` | WebSocket endpoint. |
-| `NEXT_PUBLIC_API_KEY` | `devkey` | Must match `GUARDIO_API_KEY` on the backend. |
+| `NEXT_PUBLIC_WS_URL` | `ws://localhost:8000/ws` | WebSocket endpoint |
+| `NEXT_PUBLIC_API_KEY` | `devkey` | Must match backend `GUARDIO_API_KEY` |
 
 ---
 
 ## Docker
 
-Run the full backend stack with a single command:
-
 ```bash
-docker compose up --build
-# or: make docker-up
+docker compose up --build   # or: make docker-up
 ```
 
-This starts:
-
-- `guardio` backend on port `8000` (AI disabled, API key `devkey`)
-- `prometheus` metrics on port `9090`
-
-Then start the frontend separately:
+Starts the backend on port `8000` and Prometheus on `9090`. Start the frontend separately:
 
 ```bash
 cd frontend && npm install && npm run dev
@@ -129,126 +160,82 @@ cd frontend && npm install && npm run dev
 ## Architecture
 
 ```text
-frontend/                   Next.js 15 + React 19
+frontend/                   Next.js 15, React 19, TypeScript
   src/
-    app/                    Root layout, globals, page
+    app/                    Root layout + page
     components/
       layout/               AppShell, TopBar, Sidebar
-      map/                  ThreatMap (world map + animated attack arcs)
-      graph/                InfraGraph (SVG force-directed layout)
-      timeline/             IncidentTimeline (expandable forensic log)
-      intelligence/         ThreatIntelPanel (charts, alerts, protocols)
-      ai/                   AICopilot (Gemini-backed assistant)
-      shared/               AlertFeed, LiveMetrics
-    store/                  Zustand state (nodes, arcs, alerts, incidents)
-    lib/                    WebSocket client with auto-reconnect
-    types/                  All WebSocket event types
+      map/                  ThreatMap — world map + animated arcs
+      graph/                InfraGraph — SVG force-directed layout
+      timeline/             IncidentTimeline — forensic event log
+      intelligence/         ThreatIntelPanel — charts + IDS table
+      ai/                   AICopilot — Gemini chat interface
+      shared/               AlertFeed (log stream), LiveMetrics
+    store/                  Zustand — nodes, arcs, alerts, incidents
+    lib/                    WebSocket client with exponential backoff
+    types/                  All WebSocket event type definitions
 
 backend/
-  main.py                   FastAPI app, all HTTP + WebSocket endpoints
-  simulation.py             Attack engine + background tick loop
-  topology.py               108-node geo-aware network topology
+  main.py                   FastAPI app — all HTTP + WebSocket routes
+  simulation.py             Attack engine + 120ms background tick
+  topology.py               108-node geo-aware network
   ws_manager.py             Per-client async queue broadcaster
-  ids.py                    Rate-based IDS scoring and alerts
+  ids.py                    Sliding-window rate IDS scorer
   defense.py                Firewall blocks, segments, honeypots
   replay.py                 In-memory + SQLite replay store
-  db.py                     SQLite persistence (guardio.db)
-  auth.py                   Constant-time HMAC API key validation
-  AI/gemini.py              Gemini wrapper with circuit breaker
+  db.py                     SQLite with thread-local connections
+  auth.py                   Constant-time HMAC API key check
+  AI/gemini.py              Gemini 2.0 Flash wrapper + circuit breaker
 ```
 
-### WebSocket events
+### WebSocket event stream
 
-All events arrive on `ws://localhost:8000/ws`. The frontend connects automatically on load.
+All events arrive on `ws://localhost:8000/ws`. The frontend connects automatically.
 
-| Event type | Description |
+| Event | Description |
 | --- | --- |
-| `state` | Initial topology snapshot on connect, simulation on/off |
-| `packet` | Single network packet with src/dst lat-lng, protocol, color |
+| `state` | Initial topology snapshot on connect, sim on/off |
+| `packet` | Network packet with src/dst lat-lng, protocol, color |
 | `attack` | Attack lifecycle: `start` → `update` (phases) → `end` |
-| `node_update` | Node state machine transition (healthy → compromised → encrypted…) |
-| `threat_level` | Global threat level 0–100 with status label |
-| `alert` | IDS detection with score, level (medium/high/critical), reason |
-| `defense_action` | Automated mitigation event (quarantine, rate-limit, etc.) |
+| `node_update` | State machine transition with load and coordinates |
+| `threat_level` | Global threat 0–100 with status label |
+| `alert` | IDS detection — score, level (medium/high/critical), reason |
+| `defense_action` | Automated mitigation (quarantine, rate-limit, BGP blackhole…) |
 | `dropped` | Packet blocked by firewall or segment isolation |
-| `honeypot` | Honeypot triggered by attacker |
+| `honeypot` | Honeypot triggered |
 | `infra_telemetry` | Periodic load metrics for sampled nodes |
-
-### Node states
-
-| State | Color | Meaning |
-| --- | --- | --- |
-| `healthy` | Green | Normal operation |
-| `probing` | Yellow | Reconnaissance detected |
-| `stressed` | Orange | High load or flood in progress |
-| `compromised` | Red | Host breached |
-| `encrypted` | Purple | Ransomware locked |
-| `recovering` | Cyan | Mitigation applied |
-| `isolated` | Gray | Segment-isolated |
-| `offline` | Dark | Service unavailable |
-
-### Attack simulations
-
-| Attack | Phases |
-| --- | --- |
-| `ddos` | probe → flood (20 sources) → saturation → anycast mitigation |
-| `malware` | initial infection → wave spreading (SMB/RDP) → EDR quarantine |
-| `ransomware` | lateral movement → exfiltration → encryption → ransom demand |
-| `phishing` | spear-phishing campaign → credential theft → credential replay |
-| `botnet` | C2 recruitment → bot enrollment → coordinated DDoS |
-| `apt` | OSINT recon → zero-day access → persistence → lateral movement → exfil |
 
 ---
 
 ## API reference
 
-All control endpoints require the `X-Api-Key` header (default: `devkey`). Read-only endpoints have no auth requirement.
-
-### Simulation
+Control endpoints require `X-Api-Key: devkey`. Read-only endpoints have no auth.
 
 ```text
 POST /start                         Start simulation
-POST /stop                          Stop simulation, returns replay_id
+POST /stop                          Stop, returns replay_id
 POST /attack  { "name": "ddos" }    Launch named attack
-GET  /simulation/status             Current simulation state
-GET  /topology                      Full node topology with current states
-```
+GET  /simulation/status
+GET  /topology
 
-### Defense
-
-```text
 POST   /defense/firewall/block    { "host": "host-1" }
 POST   /defense/firewall/unblock  { "host": "host-1" }
 POST   /defense/segment           { "name": "prod", "hosts": ["srv-1"] }
 DELETE /defense/segment/{name}
 POST   /defense/honeypot          { "host": "iot-3" }
-DELETE /defense/honeypot          { "host": "iot-3" }
 GET    /defense/status
-```
 
-### Replays
+GET  /replays
+GET  /replay/{id}
 
-```text
-GET  /replays          List saved replay IDs
-GET  /replay/{id}      Fetch all events for a replay
-```
+POST /ai/suggest        { event object }
+POST /ai/summarize/{id}
+POST /AI/generate       { "prompt": "..." }
 
-### AI
-
-```text
-POST /ai/suggest        { event object }    Defense suggestion for an event
-POST /ai/summarize/{id}                     AI summary of a replay
-POST /AI/generate       { "prompt": "..." } Raw Gemini generation
-```
-
-### Monitoring
-
-```text
 GET /health
 GET /status
 GET /metrics
-GET /metrics/prometheus    Prometheus exposition format
-GET /telemetry/events
+GET /metrics/prometheus
 ```
 
 ---
@@ -256,18 +243,16 @@ GET /telemetry/events
 ## Development
 
 ```bash
-make test      # Run pytest suite
+make test      # pytest suite (33 tests)
 make lint      # mypy type check
-make clean     # Remove venv and cache
-make help      # List all make targets
+make clean     # remove venv + cache
+make help      # all targets
 ```
-
-Tests live in `tests/`. The CI workflow runs on every push via GitHub Actions.
 
 ---
 
 ## Tech stack
 
-**Backend:** Python 3.11, FastAPI, uvicorn, asyncio, SQLite, Pydantic, google-genai, prometheus-client
+**Backend:** Python 3.11 · FastAPI · uvicorn · asyncio · SQLite · google-genai · prometheus-client
 
-**Frontend:** Next.js 15, React 19, TypeScript, Tailwind CSS v3, Framer Motion, Zustand, react-simple-maps, recharts, d3-geo
+**Frontend:** Next.js 15 · React 19 · TypeScript · Tailwind CSS v3 · Zustand · Framer Motion · react-simple-maps · recharts · d3-geo
