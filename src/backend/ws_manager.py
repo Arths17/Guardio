@@ -1,8 +1,6 @@
-from __future__ import annotations
+from typing import Any, Dict, List
 
 import asyncio
-from typing import Dict, List, Any
-
 from fastapi import WebSocket
 
 from .telemetry.telemetry import telemetry
@@ -10,7 +8,6 @@ from .telemetry.telemetry import telemetry
 
 class WebSocketManager:
     def __init__(self) -> None:
-            await self.disconnect(websocket)
         self.active: List[WebSocket] = []
         self.lock = asyncio.Lock()
 
@@ -20,8 +17,8 @@ class WebSocketManager:
             self.active.append(websocket)
         telemetry.increment("websocket_clients")
         try:
-            from .defense import defense
             from .simulation import sim
+            from .defense import defense
 
             state: Dict[str, Any] = {
                 "type": "state",
@@ -31,6 +28,7 @@ class WebSocketManager:
             }
             await websocket.send_json(state)
         except Exception:
+            await self.disconnect(websocket)
             return
 
     async def disconnect(self, websocket: WebSocket) -> None:

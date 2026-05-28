@@ -85,10 +85,7 @@ async def test_emit_packet_routes_core_branches(monkeypatch):
             dst="srv-2",
         )
     )
-    assert any(
-        message.get("reason") == "segment-isolation"
-        for message in emitted
-    )
+    assert any(message.get("reason") == "segment-isolation" for message in emitted)
 
     await defense.reset()
     await defense.add_honeypot("srv-9")

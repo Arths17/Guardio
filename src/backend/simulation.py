@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from .lifecycle import create_task
 import random
 from typing import Any, Dict, List, Optional, Set
 
@@ -34,9 +35,7 @@ class Simulation:
         return random.choice(self.topology[pool])
 
     def _target_host(self) -> str:
-        return random.choice(
-            self.topology["servers"] + self.topology["databases"]
-        )
+        return random.choice(self.topology["servers"] + self.topology["databases"])
 
     def _generate_packet(
         self,
@@ -50,9 +49,9 @@ class Simulation:
             "dst": dst or self._target_host(),
             "protocol": random.choice(["tcp", "udp", "http", "tls"]),
             "color": "blue" if normal else random.choice(["yellow", "red"]),
-            "size": random.randint(100, 1200)
-            if normal
-            else random.randint(1200, 10000),
+            "size": (
+                random.randint(100, 1200) if normal else random.randint(1200, 10000)
+            ),
             "ts": utc_now_iso(),
         }
         return packet
@@ -109,14 +108,10 @@ class Simulation:
                 await self._emit_packet(self._generate_packet(normal=True))
 
                 if random.random() < 0.10:
-                    await self._emit_packet(
-                        self._generate_packet(normal=False)
-                    )
+                    await self._emit_packet(self._generate_packet(normal=False))
 
                 if self._compromised_hosts and random.random() < 0.15:
-                    infected_src = random.choice(
-                        sorted(self._compromised_hosts)
-                    )
+                    infected_src = random.choice(sorted(self._compromised_hosts))
                     await self._emit_packet(
                         self._generate_packet(normal=False, src=infected_src)
                     )
@@ -134,7 +129,7 @@ class Simulation:
         await manager.broadcast_json(
             {"type": "state", "running": True, "ts": utc_now_iso()}
         )
-        self._task = asyncio.create_task(self._run())
+        self._task = create_task(self._run())
 
     async def stop(self) -> Optional[str]:
         if not self.running:
@@ -152,8 +147,9 @@ class Simulation:
         )
         rid = replays.save(self._events)
         try:
-            db.save_replay(rid, self._events)
+            await db.save_replay_async(rid, self._events)
         except Exception:
+            # best-effort persistence; do not raise
             pass
         self._events = []
         self._compromised_hosts.clear()
@@ -257,9 +253,7 @@ class Simulation:
                 "ts": utc_now_iso(),
             }
             await self._record_event(event)
-            await self._emit_packet(
-                self._generate_packet(normal=False, dst=target)
-            )
+            await self._emit_packet(self._generate_packet(normal=False, dst=target))
             await asyncio.sleep(0.12)
 
     async def _attack_phishing(self) -> None:
@@ -284,9 +278,7 @@ class Simulation:
             await asyncio.sleep(0.10)
 
     async def _attack_botnet(self) -> None:
-        compromised = random.sample(
-            self.topology["iot"] + self.topology["clients"], 8
-        )
+        compromised = random.sample(self.topology["iot"] + self.topology["clients"], 8)
         self._compromised_hosts.update(compromised)
         for host in compromised:
             event = {
@@ -312,9 +304,7 @@ class Simulation:
             "active_attack": self.active_attack,
             "events_buffered": len(self._events),
             "compromised_hosts": sorted(self._compromised_hosts),
-            "topology": {
-                key: list(value) for key, value in self.topology.items()
-            },
+            "topology": {key: list(value) for key, value in self.topology.items()},
         }
 
 

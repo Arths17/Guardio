@@ -97,9 +97,7 @@ def test_replay_lifecycle():
     started = client.post("/start", headers=headers)
     assert started.status_code == 200
 
-    attack = client.post(
-        "/attack", json={"name": "ddos"}, headers=headers
-    )
+    attack = client.post("/attack", json={"name": "ddos"}, headers=headers)
     assert attack.status_code == 200
 
     time.sleep(0.2)
@@ -111,10 +109,7 @@ def test_replay_lifecycle():
 
     replays_response = client.get("/replays")
     assert replays_response.status_code == 200
-    assert any(
-        item["id"] == rid
-        for item in replays_response.json()["replays"]
-    )
+    assert any(item["id"] == rid for item in replays_response.json()["replays"])
 
     replay = client.get(f"/replay/{rid}")
     assert replay.status_code == 200
@@ -126,9 +121,7 @@ def test_replay_lifecycle():
 def test_defense_block_and_status():
     headers = {"X-API-Key": "devkey"}
 
-    r = client.post(
-        "/defense/firewall/block", json={"host": "host-1"}, headers=headers
-    )
+    r = client.post("/defense/firewall/block", json={"host": "host-1"}, headers=headers)
     assert r.status_code == 200
     assert r.json().get("blocked") == "host-1"
 

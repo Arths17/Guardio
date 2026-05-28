@@ -9,14 +9,21 @@ from starlette.responses import Response
 from ..utils import utc_now_iso
 from .metrics import IN_PROGRESS, REQUEST_COUNT, REQUEST_LATENCY
 from .store import store_event
+from ..logging_config import (
+    bind_request_id,
+    reset_request_id,
+)
 
 
 class TelemetryMiddleware(BaseHTTPMiddleware):
     async def dispatch(
-        self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         request_id = str(uuid.uuid4())
         request.state.request_id = request_id
+        token = bind_request_id(request_id)
 
         start = time.perf_counter()
         status_code = 500
@@ -52,6 +59,7 @@ class TelemetryMiddleware(BaseHTTPMiddleware):
                     "latency_ms": duration_ms,
                 }
             )
+            reset_request_id(token)
 
 
 ObservabilityMiddleware = TelemetryMiddleware

@@ -21,4 +21,3 @@ def store_event(event: Dict[str, Any]) -> Dict[str, Any]:
 
 def get_events() -> List[Dict[str, Any]]:
     return deepcopy(EVENT_STORE)
-

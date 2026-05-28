@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, Dict, List, Optional
 
 from backend.AI import gemini as gemini_helper
@@ -5,8 +6,17 @@ from backend.db import db
 from backend.replay import replays
 
 
-def summarize_replay(rid: str) -> str:
-    events: Optional[List[Dict[str, Any]]] = db.get_events(rid) if db else None
+async def summarize_replay(rid: str) -> str:
+    # Prefer DB-stored events; fall back to in-memory cache
+    events: Optional[List[Dict[str, Any]]] = None
+    try:
+        events = await db.get_events_async(rid)
+    except Exception:
+        try:
+            events = replays.get(rid) or []
+        except Exception:
+            events = []
+
     if not events:
         events = replays.get(rid) or []
 
@@ -21,8 +31,14 @@ def summarize_replay(rid: str) -> str:
             f"{ev.get('name', ev.get('color', ev.get('details', '')))}\n"
         )
 
-    return gemini_helper.generate_text(
-        prompt, system_instruction="Summarize and provide remediation steps."
+    # Run AI call in a thread to avoid blocking
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: gemini_helper.generate_text(
+            prompt,
+            system_instruction=("Summarize and provide remediation steps."),
+        ),
     )
 
 
@@ -33,7 +49,5 @@ def suggest_defense_for_event(event: Dict[str, Any]) -> str:
     )
     return gemini_helper.generate_text(
         prompt,
-        system_instruction=(
-            "Provide a single concise defensive recommendation."
-        ),
+        system_instruction=("Provide a single concise defensive recommendation."),
     )

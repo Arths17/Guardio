@@ -1,48 +1,59 @@
 # Guardio Backend API
 
 Overview
-- The backend is a FastAPI app exposing endpoints for simulation, defense controls, replays, AI helpers, and telemetry.
-- Interactive docs available at `/docs` (Swagger) and `/redoc` when the server is running.
+- FastAPI backend for simulation, defense controls, replay storage, AI helpers, and telemetry.
+- Interactive docs are available at `/docs` and `/redoc`.
 
 Authentication
-- Use header `X-API-Key` with your API key (tests use `devkey`).
+- Use header `X-API-Key` for protected HTTP endpoints.
+- Default development key is `devkey`.
+- WebSocket connections can also pass `api_key` in the query string; header auth is still preferred.
 
-Health
-- `GET /live` — liveness probe, returns `{"status":"ok","ts":...}`
-- `GET /ready` — readiness probe, includes database snapshot
+Health and status
+- `GET /live` — liveness probe.
+- `GET /health` — alias for `/live`.
+- `GET /ready` — readiness probe with database snapshot.
+- `GET /status` — combined simulation, defense, client, and attack snapshot.
+- `GET /simulation/status` — simulation-only status.
+- `GET /defense/status` — defense-only status.
 
-Simulation & Replays
-- `POST /start` — start simulation (requires API key)
-- `POST /stop` — stop simulation, returns a `replay_id`
-- `POST /attack` — launch named attack in background (json: `{"name":"ddos"}`)
-- `GET /replays` — list available replays
-- `GET /replay/{rid}` — get a replay's events
+Simulation and replays
+- `POST /start` — start the simulator.
+- `POST /stop` — stop the simulator and return a `replay_id`.
+- `POST /attack` — launch an attack by name, e.g. `{"name":"ddos"}`.
+- `POST /simulation/start` — simulation alias for start.
+- `POST /simulation/stop` — simulation alias for stop.
+- `POST /simulation/attack` — simulation alias for attack.
+- `GET /replays` — list stored replays.
+- `GET /replay/{rid}` — fetch replay events by replay id.
 
-Defense Controls
-- `POST /defense/firewall/block` — block a host (`{"host":"host-1"}`)
-- `POST /defense/firewall/unblock` — unblock a host
-- `POST /defense/segment` — create a segment (`{"name":"prod","hosts":["srv-1"]}`)
-- `DELETE /defense/segment/{name}` — delete a segment
-- `POST /defense/honeypot` — add honeypot
-- `DELETE /defense/honeypot` — remove honeypot
+Defense controls
+- `POST /defense/firewall/block` — block a host, e.g. `{"host":"host-1"}`.
+- `POST /defense/firewall/unblock` — unblock a host.
+- `POST /defense/segment` — create a segment, e.g. `{"name":"prod","hosts":["srv-1"]}`.
+- `DELETE /defense/segment/{name}` — delete a segment.
+- `POST /defense/honeypot` — add a honeypot host.
+- `DELETE /defense/honeypot` — remove a honeypot host.
 
-AI Helpers
-- `POST /ai/summarize/{rid}` — summarize a replay
-- `POST /ai/suggest` — suggest a defensive action for an event
-- `POST /AI/generate` — free-form text generation (Gemini); set `GUARDIO_DISABLE_AI=true` to stub
+AI helpers
+- `POST /ai/summarize/{rid}` — summarize a replay.
+- `POST /ai/suggest` — suggest a defensive action for an event.
+- `POST /AI/generate` — free-form text generation via Gemini.
+- Set `GUARDIO_DISABLE_AI=true` to stub AI responses in tests or local runs.
 
-Telemetry & Metrics
-- `GET /metrics` — JSON telemetry snapshot
-- `GET /metrics/prometheus` — Prometheus exposition (requires `prometheus_client` installed)
-- `GET /telemetry/events` — recent stored telemetry events
+Telemetry and metrics
+- `GET /metrics` — JSON telemetry snapshot.
+- `GET /metrics/prometheus` — Prometheus exposition format.
+- `GET /telemetry/events` — recent stored telemetry events.
 
 WebSocket
-- `GET /ws` — websocket endpoint; connect with query `?api_key=YOUR_KEY`.
-  - On connect the server sends a `state` message.
-  - Send `ping` to receive a `pong` with timestamp.
+- `GET /ws` — connect with `?api_key=YOUR_KEY` or the `X-API-Key` header.
+- The server sends an initial `state` message on connect.
+- Send `ping` to receive a `pong` response with a timestamp.
 
 Examples
 - See `examples/` for a small Python client and usage notes.
 
 Notes
-- The server includes structured logging, request-id middleware, and a global exception handler. Run `python -m uvicorn backend.main:app --reload` for local development.
+- The server uses structured logging, request-id middleware, a lifespan-based startup/shutdown flow, and a global exception handler.
+- Run `python -m uvicorn backend.main:app --reload` for local development.

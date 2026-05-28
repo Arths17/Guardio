@@ -5,6 +5,7 @@ Usage:
 
 This script demonstrates health checks, listing replays, and calling AI endpoints (with AI disabled by default).
 """
+
 import os
 import requests
 

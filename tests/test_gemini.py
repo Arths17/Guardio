@@ -21,9 +21,7 @@ client = TestClient(app)
 # -------------------------
 # Load sample events
 # -------------------------
-sample_path = os.path.join(
-    os.path.dirname(__file__), "gemini_sample_events.json"
-)
+sample_path = os.path.join(os.path.dirname(__file__), "gemini_sample_events.json")
 
 with open(sample_path, "r") as f:
     sample_events = json.load(f)
@@ -102,9 +100,7 @@ def test_telemetry_is_recorded_from_requests():
 def test_defense_block_unblock_telemetry():
     headers = {"X-API-Key": "devkey"}
 
-    r = client.post(
-        "/defense/firewall/block", json={"host": "host-1"}, headers=headers
-    )
+    r = client.post("/defense/firewall/block", json={"host": "host-1"}, headers=headers)
     assert r.status_code == 200
 
     r2 = client.post(
@@ -114,12 +110,8 @@ def test_defense_block_unblock_telemetry():
 
     events = client.get("/telemetry/events").json()
 
-    block_events = [
-        e for e in events if e["path"] == "/defense/firewall/block"
-    ]
-    unblock_events = [
-        e for e in events if e["path"] == "/defense/firewall/unblock"
-    ]
+    block_events = [e for e in events if e["path"] == "/defense/firewall/block"]
+    unblock_events = [e for e in events if e["path"] == "/defense/firewall/unblock"]
 
     assert len(block_events) >= 1
     assert len(unblock_events) >= 1

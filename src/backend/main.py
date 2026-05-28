@@ -1,7 +1,7 @@
-from asyncio import create_task
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any
 import logging
+import os
 import uuid
 
 from fastapi import (
@@ -14,8 +14,10 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 
+from .lifecycle import create_task, task_registry
+
 from .AI import gemini as gemini_helper
-from .ai_client import suggest_defense_for_event, summarize_replay
+from .ai_client import suggest_defense_for_event
 from .auth import require_auth
 from .db import db
 from .defense import defense
@@ -40,10 +42,12 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
 
     def _generate_latest_impl() -> bytes:
         return b""
+
 else:
 
     def _generate_latest_impl() -> bytes:
         return _generate_latest()
+
 
 CONTENT_TYPE_LATEST = _CONTENT_TYPE_LATEST
 
@@ -51,27 +55,58 @@ CONTENT_TYPE_LATEST = _CONTENT_TYPE_LATEST
 def generate_latest() -> bytes:
     return _generate_latest_impl()
 
+
 try:
     from opentelemetry.instrumentation.fastapi import (
         FastAPIInstrumentor as _ImportedFastAPIInstrumentor,
     )
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
+
     class _NoOpFastAPIInstrumentor:
         @staticmethod
         def instrument_app(app):
             return None
 
-    _ImportedFastAPIInstrumentor = _NoOpFastAPIInstrumentor  # type: ignore[assignment]
+    _fastapi_instrumentor = _NoOpFastAPIInstrumentor()
+else:
+    _fastapi_instrumentor = _ImportedFastAPIInstrumentor()
 
-# Attach the imported instrumentor
-FastAPIInstrumentor: Any = _ImportedFastAPIInstrumentor()
+FastAPIInstrumentor = _fastapi_instrumentor
 
-# cspell:ignore Guardio
-app = FastAPI(title="Guardio Backend")
+logger = logging.getLogger("guardio")
 
-# Attach telemetry middleware
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Initializing application backend components via lifespan...")
+    if hasattr(db, "initialize_async"):
+        try:
+            await db.initialize_async()
+        except Exception:
+            logger.exception("Database initialization failed during startup")
+    yield
+    logger.info("Initiating graceful shutdown cycle via lifespan...")
+    try:
+        await task_registry.flush_all_tasks_async()
+    except Exception:
+        logger.exception("Error while flushing background tasks during shutdown")
+    if hasattr(db, "close_async"):
+        try:
+            await db.close_async()
+        except Exception:
+            logger.exception("Error while closing database during shutdown")
+    logger.info("Lifespan context closed down safely.")
+
+
+app = FastAPI(title="Guardio Backend", lifespan=lifespan)
+try:
+    from .ratelimit import RateLimitMiddleware
+
+    rate_limit = int(os.environ.get("GUARDIO_RATE_LIMIT_PER_MIN", "120"))
+    app.add_middleware(RateLimitMiddleware, limit_per_min=rate_limit)
+except Exception:
+    pass
 app.add_middleware(TelemetryMiddleware)
-configure_logging()
 
 
 @app.middleware("http")
@@ -87,7 +122,11 @@ async def add_request_id(request, call_next):
 async def handle_unhandled_exception(request, exc: Exception):
     logger = logging.getLogger("backend")
     rid = getattr(request.state, "request_id", None)
-    logger.exception("Unhandled exception", exc_info=exc, extra={"request_id": rid})
+    logger.exception(
+        "Unhandled exception",
+        exc_info=exc,
+        extra={"request_id": rid},
+    )
     payload = {"error": "internal_server_error", "request_id": rid}
     return JSONResponse(payload, status_code=500)
 
@@ -107,7 +146,7 @@ async def readiness():
         {
             "status": "ready",
             "ts": _utc_timestamp(),
-            "database": db.readiness_snapshot(),
+            "database": await db.readiness_snapshot_async(),
         }
     )
 
@@ -117,14 +156,52 @@ async def health():
     return await liveness()
 
 
+@app.post("/start")
+async def start_sim(x_api_key: str = Depends(require_auth)):
+    await sim.start()
+    return {"started": True}
+
+
+@app.post("/stop")
+async def stop_sim(x_api_key: str = Depends(require_auth)):
+    rid = await sim.stop()
+    return {"stopped": True, "replay_id": rid}
+
+
 @app.post("/attack")
 async def launch_attack(payload: dict, x_api_key: str = Depends(require_auth)):
     name = payload.get("name")
     if not name:
         return JSONResponse({"error": "missing attack name"}, status_code=400)
-    # run attack in background
     create_task(sim.launch_attack(name))
     return {"launched": name}
+
+
+@app.post("/simulation/start")
+async def simulation_start(x_api_key: str = Depends(require_auth)):
+    await sim.start()
+    return {"status": "simulation started"}
+
+
+@app.post("/simulation/stop")
+async def simulation_stop(x_api_key: str = Depends(require_auth)):
+    await sim.stop()
+    return {"status": "simulation stopped"}
+
+
+@app.post("/simulation/attack")
+async def simulation_attack(payload: dict, x_api_key: str = Depends(require_auth)):
+    name = payload.get("name")
+    if not name:
+        return JSONResponse({"error": "missing attack name"}, status_code=400)
+    sim.active_attack = name
+    create_task(sim.launch_attack(name))
+    return {"status": f"attack {name} started"}
+
+
+@app.get("/simulation/status")
+async def simulation_status():
+    return {"running": sim.running, "active_attack": sim.active_attack}
 
 
 @app.post("/defense/firewall/block")
@@ -132,7 +209,6 @@ async def block_host(payload: dict, x_api_key: str = Depends(require_auth)):
     host = payload.get("host")
     if not host:
         return JSONResponse({"error": "missing host"}, status_code=400)
-
     await defense.block_host(host)
     return {"blocked": host}
 
@@ -142,15 +218,12 @@ async def unblock_host(payload: dict, x_api_key: str = Depends(require_auth)):
     host = payload.get("host")
     if not host:
         return JSONResponse({"error": "missing host"}, status_code=400)
-
     await defense.unblock_host(host)
     return {"unblocked": host}
 
 
 @app.post("/defense/segment")
-async def create_segment(
-    payload: dict, x_api_key: str = Depends(require_auth)
-):
+async def create_segment(payload: dict, x_api_key: str = Depends(require_auth)):
     name = payload.get("name")
     hosts = payload.get("hosts") or []
     if not name:
@@ -175,9 +248,7 @@ async def add_honeypot(payload: dict, x_api_key: str = Depends(require_auth)):
 
 
 @app.delete("/defense/honeypot")
-async def remove_honeypot(
-    payload: dict, x_api_key: str = Depends(require_auth)
-):
+async def remove_honeypot(payload: dict, x_api_key: str = Depends(require_auth)):
     host = payload.get("host")
     if not host:
         return JSONResponse({"error": "missing host"}, status_code=400)
@@ -197,10 +268,10 @@ async def status_snapshot():
 
 @app.get("/metrics")
 async def metrics():
-    snap = telemetry.snapshot()
-    snap["websocket_clients"] = await manager.count()
-    snap["simulation"] = sim.snapshot()
-    return snap
+    snapshot = telemetry.snapshot()
+    snapshot["websocket_clients"] = await manager.count()
+    snapshot["simulation"] = sim.snapshot()
+    return snapshot
 
 
 @app.get("/metrics/prometheus")
@@ -210,49 +281,48 @@ def prometheus_metrics():
 
 @app.get("/defense/status")
 async def defense_status():
-    return {
-        "blocked": list(defense.firewall_blocked_hosts),
-        "honeypots": list(defense.honeypots),
-        "segments": {k: list(v) for k, v in defense.segments.items()},
-    }
+    return await defense.get_snapshot()
 
 
-# -------------------------
-# Replays
-# -------------------------
 @app.get("/replays")
 async def list_replays():
-    return {"replays": replays.list()}
+    try:
+        items = await replays.list_async()
+    except Exception:
+        # Fallback to synchronous call if async fails
+        items = replays.list()
+    return {"replays": items}
 
 
 @app.get("/replay/{rid}")
 async def get_replay(rid: str):
-    r = replays.get(rid)
-    if r is None:
+    try:
+        events = await replays.get_async(rid)
+    except Exception:
+        events = replays.get(rid)
+
+    if events is None:
         return JSONResponse({"error": "not found"}, status_code=404)
+    return {"id": rid, "events": events}
 
-    return {"id": rid, "events": r}
 
-
-# -------------------------
-# AI helpers
-# -------------------------
 @app.post("/ai/summarize/{rid}")
 async def ai_summarize(rid: str, x_api_key: str = Depends(require_auth)):
     try:
-        text = summarize_replay(rid)
-        return {"id": rid, "summary": text}
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        from .ai_client import summarize_replay as summarize_async
+
+        summary = await summarize_async(rid)
+        return {"id": rid, "summary": summary}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
 
 
 @app.post("/ai/suggest")
 async def ai_suggest(payload: dict, x_api_key: str = Depends(require_auth)):
     try:
-        suggestion = suggest_defense_for_event(payload)
-        return {"suggestion": suggestion}
-    except Exception as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        return {"suggestion": suggest_defense_for_event(payload)}
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
 
 
 @app.post("/AI/generate")
@@ -267,17 +337,15 @@ async def ai_generate(payload: dict):
         )
 
 
-# -------------------------
-# WebSocket
-# -------------------------
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(
+    websocket: WebSocket,
+    x_api_key: str = Depends(require_auth),
+):
     await manager.connect(websocket)
-
     try:
         while True:
             data = await websocket.receive_text()
-
             if data == "ping":
                 await websocket.send_json(
                     {
@@ -285,7 +353,6 @@ async def websocket_endpoint(websocket: WebSocket):
                         "ts": datetime.now(timezone.utc).isoformat(),
                     }
                 )
-
     except WebSocketDisconnect:
         await manager.disconnect(websocket)
 

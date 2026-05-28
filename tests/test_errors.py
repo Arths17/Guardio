@@ -7,7 +7,6 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from backend.main import app  # noqa: E402
 
-
 client = TestClient(app)
 
 

@@ -1,5 +1,9 @@
-from asyncio import create_task
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+import logging
+import os
+import uuid
+
 from fastapi import (
     Depends,
     FastAPI,
@@ -9,11 +13,11 @@ from fastapi import (
     WebSocketDisconnect,
 )
 from fastapi.responses import JSONResponse
-import logging
-import uuid
+
+from backend.lifecycle import create_task, task_registry
 
 from backend.AI import gemini as gemini_helper
-from backend.ai_client import suggest_defense_for_event, summarize_replay
+from backend.ai_client import suggest_defense_for_event
 from backend.auth import require_auth
 from backend.db import db
 from backend.defense import defense
@@ -38,10 +42,12 @@ except ModuleNotFoundError:  # pragma: no cover - optional dependency
 
     def _generate_latest_impl() -> bytes:
         return b""
+
 else:
 
     def _generate_latest_impl() -> bytes:
         return _generate_latest()
+
 
 CONTENT_TYPE_LATEST = _CONTENT_TYPE_LATEST
 
@@ -55,6 +61,7 @@ try:
         FastAPIInstrumentor as _ImportedFastAPIInstrumentor,
     )
 except ModuleNotFoundError:  # pragma: no cover - optional dependency
+
     class _NoOpFastAPIInstrumentor:
         @staticmethod
         def instrument_app(app):
@@ -66,10 +73,40 @@ else:
 
 FastAPIInstrumentor = _fastapi_instrumentor
 
-app = FastAPI(title="Guardio Backend")
-app.add_middleware(TelemetryMiddleware)
+logger = logging.getLogger("guardio")
 
-configure_logging()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info("Initializing application backend components via lifespan...")
+    if hasattr(db, "initialize_async"):
+        try:
+            await db.initialize_async()
+        except Exception:
+            logger.exception("Database initialization failed during startup")
+    yield
+    logger.info("Initiating graceful shutdown cycle via lifespan...")
+    try:
+        await task_registry.flush_all_tasks_async()
+    except Exception:
+        logger.exception("Error while flushing background tasks during shutdown")
+    if hasattr(db, "close_async"):
+        try:
+            await db.close_async()
+        except Exception:
+            logger.exception("Error while closing database during shutdown")
+    logger.info("Lifespan context closed down safely.")
+
+
+app = FastAPI(title="Guardio Backend", lifespan=lifespan)
+try:
+    from backend.ratelimit import RateLimitMiddleware
+
+    rate_limit = int(os.environ.get("GUARDIO_RATE_LIMIT_PER_MIN", "120"))
+    app.add_middleware(RateLimitMiddleware, limit_per_min=rate_limit)
+except Exception:
+    pass
+app.add_middleware(TelemetryMiddleware)
 
 
 @app.middleware("http")
@@ -85,7 +122,11 @@ async def add_request_id(request, call_next):
 async def handle_unhandled_exception(request, exc: Exception):
     logger = logging.getLogger("backend")
     rid = getattr(request.state, "request_id", None)
-    logger.exception("Unhandled exception", exc_info=exc, extra={"request_id": rid})
+    logger.exception(
+        "Unhandled exception",
+        exc_info=exc,
+        extra={"request_id": rid},
+    )
     payload = {"error": "internal_server_error", "request_id": rid}
     return JSONResponse(payload, status_code=500)
 
@@ -105,7 +146,7 @@ async def readiness():
         {
             "status": "ready",
             "ts": _utc_timestamp(),
-            "database": db.readiness_snapshot(),
+            "database": await db.readiness_snapshot_async(),
         }
     )
 
@@ -149,9 +190,7 @@ async def simulation_stop(x_api_key: str = Depends(require_auth)):
 
 
 @app.post("/simulation/attack")
-async def simulation_attack(
-    payload: dict, x_api_key: str = Depends(require_auth)
-):
+async def simulation_attack(payload: dict, x_api_key: str = Depends(require_auth)):
     name = payload.get("name")
     if not name:
         return JSONResponse({"error": "missing attack name"}, status_code=400)
@@ -184,9 +223,7 @@ async def unblock_host(payload: dict, x_api_key: str = Depends(require_auth)):
 
 
 @app.post("/defense/segment")
-async def create_segment(
-    payload: dict, x_api_key: str = Depends(require_auth)
-):
+async def create_segment(payload: dict, x_api_key: str = Depends(require_auth)):
     name = payload.get("name")
     hosts = payload.get("hosts") or []
     if not name:
@@ -211,9 +248,7 @@ async def add_honeypot(payload: dict, x_api_key: str = Depends(require_auth)):
 
 
 @app.delete("/defense/honeypot")
-async def remove_honeypot(
-    payload: dict, x_api_key: str = Depends(require_auth)
-):
+async def remove_honeypot(payload: dict, x_api_key: str = Depends(require_auth)):
     host = payload.get("host")
     if not host:
         return JSONResponse({"error": "missing host"}, status_code=400)
@@ -251,12 +286,21 @@ async def defense_status():
 
 @app.get("/replays")
 async def list_replays():
-    return {"replays": replays.list()}
+    try:
+        items = await replays.list_async()
+    except Exception:
+        # Fallback to synchronous call if async fails
+        items = replays.list()
+    return {"replays": items}
 
 
 @app.get("/replay/{rid}")
 async def get_replay(rid: str):
-    events = replays.get(rid)
+    try:
+        events = await replays.get_async(rid)
+    except Exception:
+        events = replays.get(rid)
+
     if events is None:
         return JSONResponse({"error": "not found"}, status_code=404)
     return {"id": rid, "events": events}
@@ -265,7 +309,10 @@ async def get_replay(rid: str):
 @app.post("/ai/summarize/{rid}")
 async def ai_summarize(rid: str, x_api_key: str = Depends(require_auth)):
     try:
-        return {"id": rid, "summary": summarize_replay(rid)}
+        from backend.ai_client import summarize_replay as summarize_async
+
+        summary = await summarize_async(rid)
+        return {"id": rid, "summary": summary}
     except Exception as exc:
         raise HTTPException(status_code=503, detail=str(exc))
 
@@ -292,7 +339,8 @@ async def ai_generate(payload: dict):
 
 @app.websocket("/ws")
 async def websocket_endpoint(
-    websocket: WebSocket, x_api_key: str = Depends(require_auth)
+    websocket: WebSocket,
+    x_api_key: str = Depends(require_auth),
 ):
     await manager.connect(websocket)
     try:

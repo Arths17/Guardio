@@ -153,11 +153,7 @@ def main():
             # stop on empty input
             decide_resp = client.models.generate_content(
                 model="gemini-3.1-flash-lite",
-                config={
-                    "system_instruction": (
-                        "Provide only a yes or no answer."
-                    )
-                },
+                config={"system_instruction": ("Provide only a yes or no answer.")},
                 contents=prompt + " do you want to continue the conversation?",
             )
             decide_text = getattr(decide_resp, "text", "") or ""

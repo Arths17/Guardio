@@ -11,12 +11,17 @@ from backend.telemetry.metrics import (
 )
 from backend.telemetry.store import store_event
 from backend.utils import utc_now_iso
+from backend.logging_config import (
+    bind_request_id,
+    reset_request_id,
+)
 
 
 class TelemetryMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         request_id = str(uuid.uuid4())
         request.state.request_id = request_id
+        token = bind_request_id(request_id)
 
         start = time.perf_counter()
         status_code = 500
@@ -52,6 +57,7 @@ class TelemetryMiddleware(BaseHTTPMiddleware):
                     "latency_ms": duration_ms,
                 }
             )
+            reset_request_id(token)
 
 
 ObservabilityMiddleware = TelemetryMiddleware
