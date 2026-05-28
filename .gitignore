@@ -9,3 +9,5 @@ htmlcov/
 guardio.db
 guardio.egg-info/
 src/backend.egg-info/
+frontend/node_modules/
+frontend/.next/
